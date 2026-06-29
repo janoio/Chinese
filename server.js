@@ -254,6 +254,99 @@ function findOrCreateJoinTable() {
   return newTable();
 }
 
+
+function humanNameForSocket(socket) {
+  const existing = users.get(socket.id);
+  return existing?.name || cleanName(socket.handshake?.auth?.name || `Player ${Math.floor(Math.random() * 1000)}`);
+}
+
+function detachSocketFromCurrentTable(socket, keepUser = false) {
+  const current = users.get(socket.id);
+  if (!current) return;
+  const oldTable = tables.get(current.tableId);
+  if (oldTable) {
+    removeSocketFromTable(socket.id, oldTable, false);
+    socket.leave(current.tableId);
+  }
+  if (!keepUser) users.delete(socket.id);
+}
+
+function seatHumanInTable(socket, table, name, preferredSeat = -1) {
+  socket.join(table.id);
+  const clean = cleanName(name);
+  const emptySeat = preferredSeat >= 0 && table.players[preferredSeat] === null
+    ? preferredSeat
+    : table.players.findIndex(p => p === null);
+
+  if (emptySeat === -1) return false;
+
+  const player = createPlayer(socket.id, clean, false);
+  table.players[emptySeat] = player;
+  users.set(socket.id, { id: socket.id, name: player.name, tableId: table.id, role: 'player', seatIndex: emptySeat });
+  table.message = `${player.name} joined seat ${emptySeat + 1}.`;
+  maybeStartRound(table);
+  return true;
+}
+
+function takeBotSeat(socket, table, name, botSeat = -1) {
+  const seat = botSeat >= 0 && table.players[botSeat]?.bot
+    ? botSeat
+    : table.players.findIndex(p => p && p.bot);
+
+  if (seat === -1) return false;
+
+  socket.join(table.id);
+  const bot = table.players[seat];
+  const clean = cleanName(name);
+  bot.id = socket.id;
+  bot.name = clean;
+  bot.bot = false;
+  bot.connected = true;
+  bot.lost = false;
+
+  users.set(socket.id, { id: socket.id, name: clean, tableId: table.id, role: 'player', seatIndex: seat });
+  table.endGameVotes = [];
+  table.message = `${clean} took over seat ${seat + 1} from a bot.`;
+  broadcastAll();
+  return true;
+}
+
+function joinSpecificTableAsPlayer(socket, tableId, name) {
+  const target = tables.get(tableId);
+  if (!target) return privateError(socket.id, 'Table not found.');
+
+  detachSocketFromCurrentTable(socket);
+  const clean = cleanName(name || humanNameForSocket(socket));
+
+  if (takeBotSeat(socket, target, clean)) {
+    broadcastAll();
+    return target.id;
+  }
+
+  if (target.state !== 'playing' && target.players.some(p => p === null)) {
+    seatHumanInTable(socket, target, clean);
+    broadcastAll();
+    return target.id;
+  }
+
+  socket.join(target.id);
+  target.spectators.push({ id: socket.id, name: clean, bot: false });
+  users.set(socket.id, { id: socket.id, name: clean, tableId: target.id, role: 'spectator', seatIndex: null });
+  target.message = `${clean} is watching.`;
+  broadcastAll();
+  return target.id;
+}
+
+function createNewTableForSocket(socket, name) {
+  detachSocketFromCurrentTable(socket);
+  const table = newTable();
+  const clean = cleanName(name || humanNameForSocket(socket));
+  seatHumanInTable(socket, table, clean, 0);
+  table.message = `${clean} opened a new table. Add bots or invite friends.`;
+  broadcastAll();
+  return table.id;
+}
+
 function addHumanToTable(socket, name) {
   const table = findOrCreateJoinTable();
   socket.join(table.id);
@@ -549,14 +642,91 @@ function resetTableToWaiting(table, message = 'Game ended. Waiting for players.'
 }
 
 function removeBotsIfNoHumans(table) {
-  if (tableHumanCount(table) !== 0) return false;
-  resetTableToWaiting(table, 'Everyone left. Bots left and the game ended.');
-  return true;
+  const humanPlayers = table.players.filter(p => p && !p.bot).length;
+  const humanSpectators = table.spectators.filter(s => !s.bot).length;
+
+  if (humanPlayers !== 0) return false;
+
+  // If only bots are seated, end the game. Spectators can stay by reopening/joining the table.
+  if (table.players.some(p => p && p.bot) || table.state === 'playing') {
+    resetTableToWaiting(table, 'No human players remain. Bots left and the game ended.');
+    return true;
+  }
+
+  if (humanSpectators === 0) {
+    resetTableToWaiting(table, 'Everyone left. Bots left and the game ended.');
+    return true;
+  }
+
+  return false;
 }
 
 function resetEndGameVotes(table) {
   table.endGameVotes = table.endGameVotes.filter(id => table.players.some(p => p && !p.bot && p.id === id));
 }
+
+
+function leaveGameNow(socket) {
+  const user = users.get(socket.id);
+  if (!user) return;
+
+  const table = tables.get(user.tableId);
+  if (!table) {
+    users.delete(socket.id);
+    return;
+  }
+
+  socket.leave(table.id);
+
+  if (user.role === 'spectator') {
+    table.spectators = table.spectators.filter(s => s.id !== socket.id);
+    users.delete(socket.id);
+    table.message = `${user.name} left the table.`;
+    removeBotsIfNoHumans(table);
+    cleanupEmptyTables();
+    broadcastAll();
+    return;
+  }
+
+  const seat = user.seatIndex;
+  const p = table.players[seat];
+
+  table.endGameVotes = (table.endGameVotes || []).filter(id => id !== socket.id);
+
+  if (p && p.id === socket.id) {
+    const remainingHumanPlayers = table.players.filter((player, idx) => player && !player.bot && idx !== seat).length;
+
+    if (remainingHumanPlayers === 0) {
+      resetTableToWaiting(table, `${user.name} left. No human players remain, so bots left and the game ended.`);
+      users.delete(socket.id);
+      cleanupEmptyTables();
+      broadcastAll();
+      return;
+    }
+
+    if (table.state === 'playing') {
+      const botId = `bot-${botCounter++}`;
+      p.id = botId;
+      p.name = `${user.name} Bot`;
+      p.bot = true;
+      p.connected = false;
+      p.lost = false;
+      table.message = `${user.name} left. A bot continues the seat, and another player can take it.`;
+      scheduleBotIfNeeded(table);
+    } else {
+      table.players[seat] = null;
+      table.openSeats = table.openSeats.filter(s => s !== seat);
+      fillOpenSeatFromQueue(table, seat);
+      table.message = `${user.name} left the table.`;
+      maybeStartRound(table);
+    }
+  }
+
+  users.delete(socket.id);
+  cleanupEmptyTables();
+  broadcastAll();
+}
+
 
 function playerVoteEndGame(table, socketId) {
   const user = users.get(socketId);
@@ -564,8 +734,6 @@ function playerVoteEndGame(table, socketId) {
 
   const player = table.players[user.seatIndex];
   if (!player || player.bot) return privateError(socketId, 'Only human players can vote to end the game.');
-
-  if (tableHasBots(table)) return privateError(socketId, 'End game vote is available only when there are no bots at the table.');
 
   resetEndGameVotes(table);
   if (!table.endGameVotes.includes(socketId)) table.endGameVotes.push(socketId);
@@ -618,7 +786,7 @@ function viewFor(table, socketId) {
     queueIndex,
     canTakeSeat: role === 'spectator' && queueIndex === 0 && table.openSeats.length > 0,
     canContinueWatching: role === 'player' && table.players[seatIndex] && table.players[seatIndex].lost && table.openSeats.includes(seatIndex),
-    canVoteEndGame: role === 'player' && !tableHasBots(table) && tableHumanPlayers(table).length >= 1,
+    canVoteEndGame: role === 'player' && tableHumanPlayers(table).length >= 1,
     endGameVotes: table.endGameVotes || [],
     endGameVoteCount: (table.endGameVotes || []).length,
     endGameVoteNeeded: tableHumanPlayers(table).length,
@@ -637,7 +805,16 @@ function viewFor(table, socketId) {
     lastRound: table.lastRound || null,
     openSeats: table.openSeats,
     spectators: table.spectators.map((s, idx) => ({ name: s.name, index: idx + 1 })),
-    tables: [...tables.values()].map(t => ({ id: t.id, state: t.state, players: t.players.filter(Boolean).length, spectators: t.spectators.length, round: t.round })),
+    tables: [...tables.values()].map(t => ({
+      id: t.id,
+      state: t.state,
+      players: t.players.filter(Boolean).length,
+      humans: t.players.filter(p => p && !p.bot).length,
+      bots: t.players.filter(p => p && p.bot).length,
+      empty: t.players.filter(p => p === null).length,
+      spectators: t.spectators.length,
+      round: t.round
+    })),
     players: table.players.map((p, idx) => p ? {
       seat: idx,
       name: p.name,
@@ -688,6 +865,22 @@ function allValidHands(cards, group) {
   return hands.sort((a, b) => comparePower(a.power, b.power));
 }
 
+function botDangerLevel(table, seat) {
+  const opponents = table.players
+    .map((p, idx) => ({ p, idx }))
+    .filter(x => x.p && x.idx !== seat);
+
+  if (opponents.some(x => x.p.cards.length === 1)) return 3;
+  if (opponents.some(x => x.p.cards.length === 2)) return 2;
+  if (opponents.some(x => x.p.cards.length <= 4 && !x.p.bot)) return 1;
+  return 0;
+}
+
+function createsGoodEnding(player, hand) {
+  const remaining = player.cards.length - hand.cards.length;
+  return remaining === 0 || remaining === 1 || remaining === 2 || remaining === 5;
+}
+
 function chooseBotHand(table, seat) {
   const p = table.players[seat];
   if (!p) return null;
@@ -703,53 +896,75 @@ function chooseBotHand(table, seat) {
     return strongestLegalHandForTurn(table, seat);
   }
 
-  const bySizeThenPower = [...hands].sort((a, b) => {
-    // Prefer finishing, then fewer cards, then lowest power.
-    if (a.cards.length === p.cards.length && b.cards.length !== p.cards.length) return -1;
-    if (b.cards.length === p.cards.length && a.cards.length !== p.cards.length) return 1;
-    return a.cards.length - b.cards.length || comparePower(a.power, b.power);
-  });
-
-  // If bot can finish, do it.
+  // Finish whenever possible.
   const finish = hands.find(h => h.cards.length === p.cards.length);
   if (finish) return finish;
 
-  // If following someone, play the weakest legal hand most of the time.
-  // Sometimes pass to save strong cards, especially for five-card hands.
+  const danger = botDangerLevel(table, seat);
+
+  // Following another hand.
   if (table.lastPlay) {
-    const weakest = hands[0];
-    const strongFollow = hands[hands.length - 1];
-    const shouldSave = weakest.group === 'five' && Math.random() < 0.25;
-    if (shouldSave && p.cards.length > 5) return null;
-    return Math.random() < 0.12 ? strongFollow : weakest;
+    const weakest = [...hands].sort((a, b) => comparePower(a.power, b.power))[0];
+    const strongest = [...hands].sort((a, b) => comparePower(b.power, a.power))[0];
+
+    // If someone is close to finishing, block hard.
+    if (danger >= 2) return strongest;
+
+    // If bot has many cards, it should participate more and not pass too often.
+    const goodEndings = hands.filter(h => createsGoodEnding(p, h)).sort((a, b) => comparePower(a.power, b.power));
+    if (goodEndings.length && Math.random() < 0.65) return goodEndings[0];
+
+    // Save only very strong five-card hands sometimes, otherwise play.
+    if (weakest.group === 'five' && p.cards.length > 7 && Math.random() < 0.10) return null;
+
+    // Sometimes pressure with a stronger legal hand.
+    if (Math.random() < 0.22) return strongest;
+
+    return weakest;
   }
 
-  // Leading the trick: choose a varied legal hand, not only singles.
-  const groups = {
-    five: hands.filter(h => h.group === 'five'),
-    triplet: hands.filter(h => h.group === 'triplet'),
-    pair: hands.filter(h => h.group === 'pair'),
-    single: hands.filter(h => h.group === 'single')
-  };
-
-  // First move must include 3D. Use the weakest valid hand with 3D.
+  // Leading the trick: choose varied combinations and reduce cards faster.
   if (table.firstMove) return hands[0];
 
-  // If the bot has many cards, it should try to remove more cards.
+  const groups = {
+    five: hands.filter(h => h.group === 'five').sort((a, b) => comparePower(a.power, b.power)),
+    triplet: hands.filter(h => h.group === 'triplet').sort((a, b) => comparePower(a.power, b.power)),
+    pair: hands.filter(h => h.group === 'pair').sort((a, b) => comparePower(a.power, b.power)),
+    single: hands.filter(h => h.group === 'single').sort((a, b) => comparePower(a.power, b.power))
+  };
+
+  // If opponents are close to winning, lead stronger/larger.
+  if (danger >= 2) {
+    if (groups.five.length) return groups.five[Math.floor(groups.five.length * 0.65)] || groups.five[groups.five.length - 1];
+    if (groups.triplet.length) return groups.triplet[groups.triplet.length - 1];
+    if (groups.pair.length) return groups.pair[groups.pair.length - 1];
+    return groups.single[groups.single.length - 1];
+  }
+
+  // Prefer hands that leave a useful number of cards.
+  const goodEndings = hands
+    .filter(h => createsGoodEnding(p, h))
+    .sort((a, b) => b.cards.length - a.cards.length || comparePower(a.power, b.power));
+  if (goodEndings.length && Math.random() < 0.45) return goodEndings[0];
+
   const options = [];
-  if (groups.five.length) options.push({ chance: p.cards.length >= 9 ? 0.30 : 0.18, list: groups.five });
-  if (groups.triplet.length) options.push({ chance: 0.18, list: groups.triplet });
-  if (groups.pair.length) options.push({ chance: 0.32, list: groups.pair });
-  if (groups.single.length) options.push({ chance: 0.20, list: groups.single });
+  if (groups.five.length) options.push({ chance: p.cards.length >= 8 ? 0.48 : 0.30, list: groups.five });
+  if (groups.triplet.length) options.push({ chance: 0.22, list: groups.triplet });
+  if (groups.pair.length) options.push({ chance: 0.24, list: groups.pair });
+  if (groups.single.length) options.push({ chance: p.cards.length <= 4 ? 0.22 : 0.06, list: groups.single });
 
   const total = options.reduce((sum, o) => sum + o.chance, 0);
   let r = Math.random() * total;
   for (const opt of options) {
     r -= opt.chance;
-    if (r <= 0) return opt.list[0]; // play the weakest hand in that chosen group
+    if (r <= 0) {
+      // Weakest inside chosen group, but not always the absolute weakest.
+      const index = Math.random() < 0.25 ? Math.min(opt.list.length - 1, 1) : 0;
+      return opt.list[index];
+    }
   }
 
-  return bySizeThenPower[0];
+  return hands.sort((a, b) => b.cards.length - a.cards.length || comparePower(a.power, b.power))[0];
 }
 
 function scheduleBotIfNeeded(table) {
@@ -842,6 +1057,20 @@ io.on('connection', socket => {
     if (table) spectatorTakeSeat(table, socket.id);
   });
 
+  socket.on('createNewTable', ({ name }) => {
+    const tableId = createNewTableForSocket(socket, name);
+    socket.emit('joined', { tableId });
+  });
+
+  socket.on('joinTableAsPlayer', ({ tableId, name }) => {
+    const joinedTableId = joinSpecificTableAsPlayer(socket, tableId, name);
+    if (joinedTableId) socket.emit('joined', { tableId: joinedTableId });
+  });
+
+  socket.on('leaveGame', () => {
+    leaveGameNow(socket);
+  });
+
   socket.on('voteEndGame', () => {
     const table = tableBySocket(socket);
     if (table) playerVoteEndGame(table, socket.id);
@@ -851,13 +1080,13 @@ io.on('connection', socket => {
     const current = users.get(socket.id);
     const target = tables.get(tableId);
     if (!current || !target) return;
-    const oldTable = tables.get(current.tableId);
-    if (oldTable) removeSocketFromTable(socket.id, oldTable, false);
-    socket.leave(current.tableId);
+    const name = current.name;
+    detachSocketFromCurrentTable(socket);
     socket.join(target.id);
-    target.spectators.push({ id: socket.id, name: current.name, bot: false });
-    users.set(socket.id, { id: socket.id, name: current.name, tableId: target.id, role: 'spectator', seatIndex: null });
-    publicMessage(target, `${current.name} is watching.`);
+    target.spectators.push({ id: socket.id, name, bot: false });
+    users.set(socket.id, { id: socket.id, name, tableId: target.id, role: 'spectator', seatIndex: null });
+    publicMessage(target, `${name} is watching.`);
+    socket.emit('joined', { tableId: target.id });
   });
 
   socket.on('disconnect', () => {
@@ -892,7 +1121,7 @@ function removeSocketFromTable(socketId, table, disconnected) {
 
   if (table.state === 'playing') {
     // Keep the game moving only if at least one human remains.
-    const humanCountAfterLeave = table.players.filter((player, idx) => player && !player.bot && idx !== seat).length + table.spectators.filter(s => !s.bot).length;
+    const humanCountAfterLeave = table.players.filter((player, idx) => player && !player.bot && idx !== seat).length;
 
     if (humanCountAfterLeave === 0) {
       resetTableToWaiting(table, 'Everyone left. Bots left and the game ended.');

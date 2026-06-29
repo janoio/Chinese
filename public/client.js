@@ -16,7 +16,9 @@ const playBtn = $('playBtn');
 const smashBtn = $('smashBtn');
 const passBtn = $('passBtn');
 const addBotBtn = $('addBotBtn');
+const newTableBtn = $('newTableBtn');
 const endGameBtn = $('endGameBtn');
+const leaveGameBtn = $('leaveGameBtn');
 const installAppBtn = $('installAppBtn');
 const turnInfo = $('turnInfo');
 const lastPlay = $('lastPlay');
@@ -68,11 +70,31 @@ addBotBtn.addEventListener('click', () => {
   socket.emit('addBot');
 });
 
+newTableBtn.addEventListener('click', () => {
+  unlockAudio();
+  normalPress(newTableBtn);
+  const name = localStorage.getItem('cp-name') || nameInput.value.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
+  localStorage.setItem('cp-name', name);
+  socket.emit('createNewTable', { name });
+  joinScreen.classList.add('hidden');
+  gameScreen.classList.remove('hidden');
+});
+
 endGameBtn.addEventListener('click', () => {
   unlockAudio();
   normalPress(endGameBtn);
   if (confirm('End this game? All human players must confirm.')) {
     socket.emit('voteEndGame');
+  }
+});
+
+leaveGameBtn.addEventListener('click', () => {
+  unlockAudio();
+  normalPress(leaveGameBtn);
+  if (confirm('Leave the table? If you are the last human player, bots will leave and the game will end.')) {
+    socket.emit('leaveGame');
+    joinScreen.classList.remove('hidden');
+    gameScreen.classList.add('hidden');
   }
 });
 takeSeatBtn.addEventListener('click', () => {
@@ -168,6 +190,7 @@ function render(state) {
     ? `Voted ${state.endGameVoteCount}/${state.endGameVoteNeeded}`
     : `End game ${state.endGameVoteCount || 0}/${state.endGameVoteNeeded || 0}`;
   endGameBtn.classList.toggle('hidden', !state.canVoteEndGame);
+  leaveGameBtn.classList.toggle('hidden', !(state.role === 'player' || state.role === 'spectator'));
 
   takeSeatBtn.classList.toggle('hidden', !state.canTakeSeat);
   continueWatchingBtn.classList.toggle('hidden', !state.canContinueWatching);
@@ -203,18 +226,41 @@ function renderTables(state) {
   state.tables.forEach(t => {
     const div = document.createElement('div');
     div.className = 'table-link';
-    div.innerHTML = `<strong>${escapeHtml(t.id)}</strong><br>${t.players}/4 players · ${t.spectators} watching · ${t.state}`;
+
+    const current = t.id === state.tableId ? ' · current' : '';
+    const botText = t.bots ? ` · ${t.bots} bot${t.bots > 1 ? 's' : ''}` : '';
+    const emptyText = t.empty ? ` · ${t.empty} empty` : '';
+    div.innerHTML = `<strong>${escapeHtml(t.id)}</strong>${current}<br>${t.humans || 0} human${(t.humans || 0) === 1 ? '' : 's'} · ${t.players}/4 seats${botText}${emptyText} · ${t.spectators} watching · ${t.state}`;
+
+    const row = document.createElement('div');
+    row.className = 'table-actions';
+
     if (t.id !== state.tableId) {
-      const btn = document.createElement('button');
-      btn.textContent = 'Watch';
-      btn.style.marginTop = '8px';
-      btn.addEventListener('click', () => {
+      const watchBtn = document.createElement('button');
+      watchBtn.textContent = 'Watch';
+      watchBtn.addEventListener('click', () => {
         unlockAudio();
-        normalPress(btn);
+        normalPress(watchBtn);
         socket.emit('switchTable', { tableId: t.id });
       });
-      div.appendChild(btn);
+      row.appendChild(watchBtn);
     }
+
+    if (t.id !== state.tableId && ((t.bots || 0) > 0 || ((t.empty || 0) > 0 && t.state !== 'playing'))) {
+      const joinBtn = document.createElement('button');
+      joinBtn.textContent = (t.bots || 0) > 0 ? 'Take bot seat' : 'Join';
+      joinBtn.className = 'join-table-btn';
+      joinBtn.addEventListener('click', () => {
+        unlockAudio();
+        normalPress(joinBtn);
+        const name = localStorage.getItem('cp-name') || nameInput.value.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
+        localStorage.setItem('cp-name', name);
+        socket.emit('joinTableAsPlayer', { tableId: t.id, name });
+      });
+      row.appendChild(joinBtn);
+    }
+
+    if (row.children.length) div.appendChild(row);
     tablesList.appendChild(div);
   });
 }

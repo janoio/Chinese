@@ -650,3 +650,30 @@ button.power-press {
 .end-game-btn:disabled {
   opacity: .65;
 }
+
+
+.leave-game-btn {
+  background: linear-gradient(180deg, #cbd5e1, #94a3b8);
+  color: #07111f;
+}
+
+
+.new-table-btn {
+  background: linear-gradient(180deg, #8ee7ff, #38bdf8);
+  color: #04131a;
+}
+.join-table-btn {
+  background: linear-gradient(180deg, #a7f3d0, #34d399);
+  color: #052014;
+}
+.table-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.table-actions button {
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: .82rem;
+}

@@ -193,3 +193,21 @@ The app now:
 - If a player closes the app during a live game, a bot still takes over only when at least one human remains.
 - Added **End game** voting when there are no bots at the table.
 - All human players must confirm before the game ends.
+
+
+## V5 leave button fix
+
+- Added a visible **Leave game** button.
+- On phones, closing the browser/app can delay the disconnect, so use **Leave game** before closing.
+- If the last human player presses **Leave game**, bots immediately leave and the game resets.
+- If a player disconnects and no other human players remain, bots also leave and the table resets.
+
+
+## V6 tables and stronger bots
+
+- Added **New table** button so players can open another table immediately.
+- Players can join another table instead of waiting as spectators.
+- Players can take over a **bot seat** during a game.
+- Bots are stronger and play more combinations: pairs, triplets, five-card hands, and stronger blocking hands.
+- **Leave game** remains available.
+- **End game** voting remains available and now also works at tables with bots; all human players must confirm.
