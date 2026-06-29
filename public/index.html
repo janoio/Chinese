@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chinese Poker Live</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#14653e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Chinese Poker" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <section id="joinScreen" class="panel join-panel">
+      <h1>Chinese Poker Live</h1>
+      <p>4 players per table. Extra players watch without seeing cards. Bots can fill empty seats.</p>
+      <div class="join-row">
+        <input id="nameInput" maxlength="20" placeholder="Your name" autocomplete="name" />
+        <button id="joinBtn">Join table</button>
+      </div>
+      <p class="small">Card power: 3,4,5,6,7,8,9,10,J,Q,K,A,2. Suit power: ♦, ♣, ♥, ♠.</p>
+    </section>
+
+    <section id="gameScreen" class="hidden">
+      <header class="topbar">
+        <div>
+          <h2 id="tableTitle">Table</h2>
+          <p id="statusLine">Connecting...</p>
+        </div>
+        <div class="top-actions">
+          <button id="installAppBtn" class="install-btn hidden">Install on phone</button>
+          <button id="addBotBtn">Add bot</button>
+        </div>
+      </header>
+
+      <div id="toast" class="toast hidden"></div>
+
+      <section class="layout">
+        <aside class="panel side">
+          <h3>Players</h3>
+          <div id="playersList"></div>
+
+          <h3>Watchers queue</h3>
+          <div id="spectatorsList" class="small"></div>
+          <button id="takeSeatBtn" class="hidden">Take open seat</button>
+          <button id="continueWatchingBtn" class="hidden">Continue watching</button>
+
+          <h3>Tables</h3>
+          <div id="tablesList" class="small"></div>
+        </aside>
+
+        <section class="table-area">
+          <section class="table-stage">
+            <div class="poker-table-wrap">
+              <div id="seatTop" class="seat seat-top"></div>
+              <div id="seatRight" class="seat seat-right"></div>
+              <div id="seatBottom" class="seat seat-bottom"></div>
+              <div id="seatLeft" class="seat seat-left"></div>
+
+              <div class="poker-table-shell">
+                <div class="poker-table-felt">
+                  <div id="impactBurst" class="impact-burst"></div>
+                  <div id="tableCenterInfo" class="table-center-info">
+                    <div id="turnInfo" class="turn-info"></div>
+                    <div id="lastPlay" class="last-play"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel center-panel">
+              <div id="roundResult" class="round-result"></div>
+            </div>
+          </section>
+
+          <div class="panel hand-panel">
+            <div class="hand-header">
+              <h3 id="handTitle">Your hand</h3>
+              <div class="actions">
+                <button id="playBtn">Play normal</button>
+                <button id="smashBtn" class="smash-btn">Smash hand</button>
+                <button id="passBtn">Pass</button>
+              </div>
+            </div>
+            <div id="hand" class="hand"></div>
+            <p id="selectionHint" class="small"></p>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
