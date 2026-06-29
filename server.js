@@ -31,6 +31,8 @@ function newTable() {
     state: 'waiting',
     currentTurn: 0,
     firstMove: false,
+    startRequires3D: false,
+    nextStarterSeat: null,
     lastPlay: null,
     passes: [],
     round: 0,
@@ -188,7 +190,7 @@ function strongestLegalHandForTurn(table, seat) {
   const group = table.lastPlay ? table.lastPlay.hand.group : null;
   let hands = allValidHands(p.cards, group);
 
-  if (table.firstMove) hands = hands.filter(h => h.cards.includes('3D'));
+  if (table.firstMove && table.startRequires3D) hands = hands.filter(h => h.cards.includes('3D'));
   if (table.lastPlay) hands = hands.filter(h => beats(h, table.lastPlay));
   if (!hands.length) return null;
 
@@ -412,6 +414,8 @@ function startRound(table) {
   table.passes = [];
   table.firstMove = true;
   table.openSeats = [];
+  table.endGameVotes = [];
+
   const deck = shuffle(makeDeck());
   for (let i = 0; i < SEATS; i++) table.players[i].cards = [];
   for (let i = 0; i < deck.length; i++) {
@@ -421,9 +425,25 @@ function startRound(table) {
     p.cards = sortCards(p.cards);
     p.lost = false;
   }
-  const starter = table.players.findIndex(p => p.cards.some(c => c.rank === '3' && c.suit === 'D'));
+
+  let starter = -1;
+
+  // First round only: the player with 3♦ starts and must play it.
+  // After that: the previous round winner starts the next round.
+  if (table.round === 1 || table.nextStarterSeat === null || !table.players[table.nextStarterSeat]) {
+    starter = table.players.findIndex(p => p.cards.some(c => c.rank === '3' && c.suit === 'D'));
+    table.startRequires3D = true;
+  } else {
+    starter = table.nextStarterSeat;
+    table.startRequires3D = false;
+  }
+
   table.currentTurn = starter >= 0 ? starter : 0;
-  table.message = `Round ${table.round}: ${table.players[table.currentTurn].name} starts with 3♦.`;
+  const starterName = table.players[table.currentTurn].name;
+  table.message = table.startRequires3D
+    ? `Round ${table.round}: ${starterName} starts with 3♦.`
+    : `Round ${table.round}: ${starterName} starts because they won the previous round.`;
+
   broadcastAll();
   scheduleBotIfNeeded(table);
 }
@@ -455,7 +475,7 @@ function playHand(table, socketId, selectedIds, opts = {}) {
   const owned = new Set(player.cards.map(cardId));
   if (!ids.every(id => owned.has(id))) return privateError(socketId, 'Wrong card.');
 
-  if (table.firstMove && !ids.includes('3D')) return privateError(socketId, 'First hand must include 3♦.');
+  if (table.firstMove && table.startRequires3D && !ids.includes('3D')) return privateError(socketId, 'First hand of the game must include 3♦.');
   if (table.lastPlay && hand.group !== table.lastPlay.hand.group) return privateError(socketId, `Wrong hand. You must play ${table.lastPlay.hand.group}.`);
   if (!beats(hand, table.lastPlay)) return privateError(socketId, 'Wrong hand. Your hand is not strong enough.');
 
@@ -518,6 +538,7 @@ function passTurn(table, socketId) {
 }
 
 function finishRound(table, winnerSeat) {
+  table.nextStarterSeat = winnerSeat;
   const winner = table.players[winnerSeat];
   const roundScores = [];
   for (let i = 0; i < SEATS; i++) {
@@ -631,6 +652,8 @@ function resetTableToWaiting(table, message = 'Game ended. Waiting for players.'
   table.state = 'waiting';
   table.currentTurn = 0;
   table.firstMove = false;
+  table.startRequires3D = false;
+  table.nextStarterSeat = null;
   table.lastPlay = null;
   table.lastRound = null;
   table.passes = [];
@@ -794,6 +817,7 @@ function viewFor(table, socketId) {
     currentTurn: table.currentTurn,
     currentTurnName: table.players[table.currentTurn]?.name || '',
     firstMove: table.firstMove,
+    startRequires3D: table.startRequires3D,
     highestAlert: highestAlertInfo(table),
     lastPlay: table.lastPlay ? {
       playerName: table.lastPlay.playerName,
@@ -888,7 +912,7 @@ function chooseBotHand(table, seat) {
   const group = table.lastPlay ? table.lastPlay.hand.group : null;
   let hands = allValidHands(p.cards, group);
 
-  if (table.firstMove) hands = hands.filter(h => h.cards.includes('3D'));
+  if (table.firstMove && table.startRequires3D) hands = hands.filter(h => h.cards.includes('3D'));
   if (table.lastPlay) hands = hands.filter(h => beats(h, table.lastPlay));
   if (!hands.length) return null;
 

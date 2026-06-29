@@ -329,7 +329,7 @@ function seatHtml(player, seatIndex, state) {
 function renderCenter(state) {
   const highestText = state.highestAlert?.active ? ` · HIGHEST! ${state.highestAlert.targetName} has 1 card` : '';
   turnInfo.textContent = state.state === 'playing'
-    ? `${state.currentTurnName}'s turn${state.firstMove ? ' · first hand must include 3♦' : ''}${highestText}`
+    ? `${state.currentTurnName}'s turn${state.firstMove && state.startRequires3D ? ' · first hand must include 3♦' : ''}${highestText}`
     : state.message;
 
   if (state.canVoteEndGame && state.endGameVoteCount > 0) {

@@ -211,3 +211,10 @@ The app now:
 - Bots are stronger and play more combinations: pairs, triplets, five-card hands, and stronger blocking hands.
 - **Leave game** remains available.
 - **End game** voting remains available and now also works at tables with bots; all human players must confirm.
+
+
+## V7 winner starts rule
+
+- In the first round only, the player with **3♦** starts and must play 3♦.
+- After that, the winner of the previous round starts the next round.
+- The winner does not need to include 3♦ when starting later rounds.
