@@ -16,6 +16,7 @@ const playBtn = $('playBtn');
 const smashBtn = $('smashBtn');
 const passBtn = $('passBtn');
 const addBotBtn = $('addBotBtn');
+const endGameBtn = $('endGameBtn');
 const installAppBtn = $('installAppBtn');
 const turnInfo = $('turnInfo');
 const lastPlay = $('lastPlay');
@@ -65,6 +66,14 @@ addBotBtn.addEventListener('click', () => {
   unlockAudio();
   normalPress(addBotBtn);
   socket.emit('addBot');
+});
+
+endGameBtn.addEventListener('click', () => {
+  unlockAudio();
+  normalPress(endGameBtn);
+  if (confirm('End this game? All human players must confirm.')) {
+    socket.emit('voteEndGame');
+  }
 });
 takeSeatBtn.addEventListener('click', () => {
   unlockAudio();
@@ -154,6 +163,11 @@ function render(state) {
   smashBtn.disabled = !myTurn || selected.size === 0;
   passBtn.disabled = !myTurn || !state.lastPlay;
   addBotBtn.disabled = state.state === 'playing';
+  endGameBtn.disabled = !state.canVoteEndGame || state.hasVotedEndGame;
+  endGameBtn.textContent = state.hasVotedEndGame
+    ? `Voted ${state.endGameVoteCount}/${state.endGameVoteNeeded}`
+    : `End game ${state.endGameVoteCount || 0}/${state.endGameVoteNeeded || 0}`;
+  endGameBtn.classList.toggle('hidden', !state.canVoteEndGame);
 
   takeSeatBtn.classList.toggle('hidden', !state.canTakeSeat);
   continueWatchingBtn.classList.toggle('hidden', !state.canContinueWatching);
@@ -271,6 +285,10 @@ function renderCenter(state) {
   turnInfo.textContent = state.state === 'playing'
     ? `${state.currentTurnName}'s turn${state.firstMove ? ' · first hand must include 3♦' : ''}${highestText}`
     : state.message;
+
+  if (state.canVoteEndGame && state.endGameVoteCount > 0) {
+    turnInfo.textContent += ` · End game vote ${state.endGameVoteCount}/${state.endGameVoteNeeded}`;
+  }
 
   if (!state.lastPlay) {
     lastPlay.innerHTML = `<div class="small">No active hand. The current player can choose single, pair, triplet, or a 5-card poker hand.</div>`;

@@ -185,3 +185,11 @@ The app now:
 - blocks pass if the right-side player has any legal hand,
 - blocks weaker hands and only accepts the strongest legal hand,
 - makes bots follow the same rule.
+
+
+## V4 end game fixes
+
+- If all human players leave, the bots leave too and the table ends/reset automatically.
+- If a player closes the app during a live game, a bot still takes over only when at least one human remains.
+- Added **End game** voting when there are no bots at the table.
+- All human players must confirm before the game ends.

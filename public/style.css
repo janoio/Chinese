@@ -641,3 +641,12 @@ button.power-press {
 .turn-info {
   text-shadow: 0 1px 10px rgba(243,192,79,.18);
 }
+
+
+.end-game-btn {
+  background: linear-gradient(180deg, #ff8b8b, #ef4444);
+  color: #210707;
+}
+.end-game-btn:disabled {
+  opacity: .65;
+}

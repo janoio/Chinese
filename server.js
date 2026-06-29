@@ -36,6 +36,7 @@ function newTable() {
     round: 0,
     message: 'Waiting for 4 players.',
     openSeats: [],
+    endGameVotes: [],
     createdAt: Date.now(),
     lastActionAt: Date.now()
   };
@@ -518,6 +519,79 @@ function spectatorTakeSeat(table, socketId) {
   broadcastAll();
 }
 
+
+function tableHumanPlayers(table) {
+  return table.players.filter(p => p && !p.bot);
+}
+
+function tableHasBots(table) {
+  return table.players.some(p => p && p.bot);
+}
+
+function tableHumanCount(table) {
+  return tableHumanPlayers(table).length + table.spectators.filter(s => !s.bot).length;
+}
+
+function resetTableToWaiting(table, message = 'Game ended. Waiting for players.') {
+  table.players = Array(SEATS).fill(null);
+  table.spectators = [];
+  table.state = 'waiting';
+  table.currentTurn = 0;
+  table.firstMove = false;
+  table.lastPlay = null;
+  table.lastRound = null;
+  table.passes = [];
+  table.openSeats = [];
+  table.endGameVotes = [];
+  table.round = 0;
+  table.message = message;
+  table.lastActionAt = Date.now();
+}
+
+function removeBotsIfNoHumans(table) {
+  if (tableHumanCount(table) !== 0) return false;
+  resetTableToWaiting(table, 'Everyone left. Bots left and the game ended.');
+  return true;
+}
+
+function resetEndGameVotes(table) {
+  table.endGameVotes = table.endGameVotes.filter(id => table.players.some(p => p && !p.bot && p.id === id));
+}
+
+function playerVoteEndGame(table, socketId) {
+  const user = users.get(socketId);
+  if (!user || user.tableId !== table.id || user.role !== 'player') return privateError(socketId, 'You are not playing at this table.');
+
+  const player = table.players[user.seatIndex];
+  if (!player || player.bot) return privateError(socketId, 'Only human players can vote to end the game.');
+
+  if (tableHasBots(table)) return privateError(socketId, 'End game vote is available only when there are no bots at the table.');
+
+  resetEndGameVotes(table);
+  if (!table.endGameVotes.includes(socketId)) table.endGameVotes.push(socketId);
+
+  const humans = tableHumanPlayers(table);
+  const needed = humans.length;
+  const votes = table.endGameVotes.length;
+
+  if (needed > 0 && votes >= needed) {
+    const sockets = io.sockets.adapter.rooms.get(table.id);
+    if (sockets) {
+      for (const sid of sockets) {
+        const u = users.get(sid);
+        if (u && u.tableId === table.id) {
+          users.set(sid, { id: sid, name: u.name, tableId: table.id, role: 'spectator', seatIndex: null });
+        }
+      }
+    }
+    resetTableToWaiting(table, 'All players confirmed. Game ended.');
+  } else {
+    table.message = `${player.name} voted to end the game (${votes}/${needed}).`;
+  }
+
+  broadcastAll();
+}
+
 function privateError(socketId, message) {
   const sock = io.sockets.sockets.get(socketId);
   if (sock) sock.emit('toast', { type: 'error', message });
@@ -544,6 +618,11 @@ function viewFor(table, socketId) {
     queueIndex,
     canTakeSeat: role === 'spectator' && queueIndex === 0 && table.openSeats.length > 0,
     canContinueWatching: role === 'player' && table.players[seatIndex] && table.players[seatIndex].lost && table.openSeats.includes(seatIndex),
+    canVoteEndGame: role === 'player' && !tableHasBots(table) && tableHumanPlayers(table).length >= 1,
+    endGameVotes: table.endGameVotes || [],
+    endGameVoteCount: (table.endGameVotes || []).length,
+    endGameVoteNeeded: tableHumanPlayers(table).length,
+    hasVotedEndGame: !!(user && (table.endGameVotes || []).includes(user.id)),
     currentTurn: table.currentTurn,
     currentTurnName: table.players[table.currentTurn]?.name || '',
     firstMove: table.firstMove,
@@ -763,6 +842,11 @@ io.on('connection', socket => {
     if (table) spectatorTakeSeat(table, socket.id);
   });
 
+  socket.on('voteEndGame', () => {
+    const table = tableBySocket(socket);
+    if (table) playerVoteEndGame(table, socket.id);
+  });
+
   socket.on('switchTable', ({ tableId }) => {
     const current = users.get(socket.id);
     const target = tables.get(tableId);
@@ -790,16 +874,31 @@ io.on('connection', socket => {
 function removeSocketFromTable(socketId, table, disconnected) {
   const user = users.get(socketId);
   if (!user) return;
+
+  table.endGameVotes = (table.endGameVotes || []).filter(id => id !== socketId);
+
   if (user.role === 'spectator') {
     table.spectators = table.spectators.filter(s => s.id !== socketId);
+    removeBotsIfNoHumans(table);
     return;
   }
+
   const seat = user.seatIndex;
   const p = table.players[seat];
-  if (!p || p.id !== socketId) return;
+  if (!p || p.id !== socketId) {
+    removeBotsIfNoHumans(table);
+    return;
+  }
 
   if (table.state === 'playing') {
-    // Keep the game moving by converting a disconnected player into a bot.
+    // Keep the game moving only if at least one human remains.
+    const humanCountAfterLeave = table.players.filter((player, idx) => player && !player.bot && idx !== seat).length + table.spectators.filter(s => !s.bot).length;
+
+    if (humanCountAfterLeave === 0) {
+      resetTableToWaiting(table, 'Everyone left. Bots left and the game ended.');
+      return;
+    }
+
     const botId = `bot-${botCounter++}`;
     p.id = botId;
     p.name = `${p.name} Bot`;
@@ -812,12 +911,14 @@ function removeSocketFromTable(socketId, table, disconnected) {
     table.openSeats = table.openSeats.filter(s => s !== seat);
     fillOpenSeatFromQueue(table, seat);
     maybeStartRound(table);
+    removeBotsIfNoHumans(table);
   }
 }
 
 function cleanupEmptyTables() {
   for (const [id, table] of tables.entries()) {
-    const humans = table.players.filter(p => p && !p.bot).length + table.spectators.length;
+    removeBotsIfNoHumans(table);
+    const humans = tableHumanCount(table);
     if (tables.size > 1 && humans === 0) tables.delete(id);
   }
   if (tables.size === 0) newTable();
