@@ -227,3 +227,10 @@ The app now:
 - Mobile view hides the side panel and puts scores in a compact bottom score bar near the cards.
 - The hand panel is sticky at the bottom on phone so players do not need to scroll up and down as much.
 - Table list inside the game also shows names instead of only counts.
+
+
+## V9 design update
+
+- Applied the provided Big Two visual style to the existing multiplayer game.
+- Kept the existing server/game rules and only changed the frontend design.
+- Added Cairo font, gold/green theme, round avatar seats, casino-style cards, table felt, bottom hand area, and cleaner lobby/table cards.

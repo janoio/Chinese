@@ -281,7 +281,7 @@ function renderScoreBar(state) {
     const classes = ['score-chip', p.isTurn ? 'turn' : '', state.role === 'player' && idx === state.seatIndex ? 'me' : '', p.lost ? 'lost' : ''].filter(Boolean).join(' ');
     return `<div class="${classes}">
       <span>${escapeHtml(p.name)}${p.bot ? ' 🤖' : ''}</span>
-      <strong>${p.score} pts</strong>
+      <strong>${escapeHtml(p.name)}: ${p.score}</strong>
       <em>${p.cardCount} cards</em>
     </div>`;
   }).join('');
