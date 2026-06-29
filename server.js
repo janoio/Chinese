@@ -793,6 +793,51 @@ function publicMessage(table, message) {
   broadcastAll();
 }
 
+
+function tableSeatInfo(table) {
+  return table.players.map((p, idx) => p ? {
+    seat: idx,
+    name: p.name,
+    bot: p.bot,
+    score: p.score,
+    cardCount: p.cards.length,
+    lost: p.lost,
+    isTurn: table.state === 'playing' && idx === table.currentTurn
+  } : {
+    seat: idx,
+    name: null,
+    bot: false,
+    score: 0,
+    cardCount: 0,
+    empty: true,
+    lost: false,
+    isTurn: false
+  });
+}
+
+function lobbyTables() {
+  return [...tables.values()].map(t => ({
+    id: t.id,
+    state: t.state,
+    round: t.round,
+    seats: tableSeatInfo(t),
+    players: t.players.filter(Boolean).length,
+    humans: t.players.filter(p => p && !p.bot).length,
+    bots: t.players.filter(p => p && p.bot).length,
+    empty: t.players.filter(p => p === null).length,
+    spectators: t.spectators.length,
+    message: t.message
+  }));
+}
+
+function sendLobby(socket) {
+  socket.emit('lobbyState', { tables: lobbyTables() });
+}
+
+function broadcastLobby() {
+  io.emit('lobbyState', { tables: lobbyTables() });
+}
+
 function viewFor(table, socketId) {
   const user = users.get(socketId);
   const role = user && user.tableId === table.id ? user.role : 'spectator';
@@ -837,7 +882,8 @@ function viewFor(table, socketId) {
       bots: t.players.filter(p => p && p.bot).length,
       empty: t.players.filter(p => p === null).length,
       spectators: t.spectators.length,
-      round: t.round
+      round: t.round,
+      seats: tableSeatInfo(t)
     })),
     players: table.players.map((p, idx) => p ? {
       seat: idx,
@@ -862,6 +908,7 @@ function broadcastTable(table) {
 }
 function broadcastAll() {
   for (const table of tables.values()) broadcastTable(table);
+  broadcastLobby();
 }
 
 function combo(arr, k) {
@@ -1047,6 +1094,9 @@ function tableBySocket(socket) {
 }
 
 io.on('connection', socket => {
+  sendLobby(socket);
+  socket.on('getLobby', () => sendLobby(socket));
+
   socket.on('join', ({ name }) => {
     const old = users.get(socket.id);
     if (old) socket.leave(old.tableId);
@@ -1089,6 +1139,21 @@ io.on('connection', socket => {
   socket.on('joinTableAsPlayer', ({ tableId, name }) => {
     const joinedTableId = joinSpecificTableAsPlayer(socket, tableId, name);
     if (joinedTableId) socket.emit('joined', { tableId: joinedTableId });
+  });
+
+  socket.on('watchTable', ({ tableId, name }) => {
+    const target = tables.get(tableId);
+    if (!target) return privateError(socket.id, 'Table not found.');
+
+    const current = users.get(socket.id);
+    const clean = cleanName(name || current?.name || `Player ${Math.floor(Math.random() * 1000)}`);
+
+    detachSocketFromCurrentTable(socket);
+    socket.join(target.id);
+    target.spectators.push({ id: socket.id, name: clean, bot: false });
+    users.set(socket.id, { id: socket.id, name: clean, tableId: target.id, role: 'spectator', seatIndex: null });
+    publicMessage(target, `${clean} is watching.`);
+    socket.emit('joined', { tableId: target.id });
   });
 
   socket.on('leaveGame', () => {

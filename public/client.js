@@ -5,6 +5,8 @@ const joinScreen = $('joinScreen');
 const gameScreen = $('gameScreen');
 const nameInput = $('nameInput');
 const joinBtn = $('joinBtn');
+const lobbyNewTableBtn = $('lobbyNewTableBtn');
+const lobbyTables = $('lobbyTables');
 const tableTitle = $('tableTitle');
 const statusLine = $('statusLine');
 const playersList = $('playersList');
@@ -24,6 +26,7 @@ const turnInfo = $('turnInfo');
 const lastPlay = $('lastPlay');
 const roundResult = $('roundResult');
 const selectionHint = $('selectionHint');
+const scoreBar = $('scoreBar');
 const toast = $('toast');
 const takeSeatBtn = $('takeSeatBtn');
 const continueWatchingBtn = $('continueWatchingBtn');
@@ -46,6 +49,14 @@ let deferredInstallPrompt = null;
 
 joinBtn.addEventListener('click', join);
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+lobbyNewTableBtn.addEventListener('click', () => {
+  unlockAudio();
+  normalPress(lobbyNewTableBtn);
+  const name = getPlayerName();
+  socket.emit('createNewTable', { name });
+  joinScreen.classList.add('hidden');
+  gameScreen.classList.remove('hidden');
+});
 playBtn.addEventListener('click', () => {
   unlockAudio();
   normalPress(playBtn);
@@ -73,8 +84,7 @@ addBotBtn.addEventListener('click', () => {
 newTableBtn.addEventListener('click', () => {
   unlockAudio();
   normalPress(newTableBtn);
-  const name = localStorage.getItem('cp-name') || nameInput.value.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
-  localStorage.setItem('cp-name', name);
+  const name = getPlayerName();
   socket.emit('createNewTable', { name });
   joinScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
@@ -141,10 +151,16 @@ if ('serviceWorker' in navigator) {
 }
 
 
+function getPlayerName() {
+  const name = nameInput.value.trim() || localStorage.getItem('cp-name') || `Player ${Math.floor(Math.random() * 1000)}`;
+  localStorage.setItem('cp-name', name);
+  nameInput.value = name;
+  return name;
+}
+
 function join() {
   unlockAudio();
-  const name = nameInput.value.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
-  localStorage.setItem('cp-name', name);
+  const name = getPlayerName();
   socket.emit('join', { name });
   joinScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
@@ -160,6 +176,10 @@ socket.on('joined', ({ tableId }) => {
   history.replaceState(null, '', url);
 });
 
+socket.on('lobbyState', lobby => {
+  renderLobby(lobby.tables || []);
+});
+
 socket.on('state', state => {
   latestState = state;
   render(state);
@@ -167,6 +187,105 @@ socket.on('state', state => {
 });
 
 socket.on('toast', ({ message }) => showToast(message));
+
+function renderLobby(tables) {
+  if (!lobbyTables) return;
+
+  if (!tables.length) {
+    lobbyTables.innerHTML = `<div class="lobby-empty">No tables yet. Tap <strong>+ New table</strong> to start.</div>`;
+    return;
+  }
+
+  lobbyTables.innerHTML = '';
+  tables.forEach(table => {
+    const card = document.createElement('article');
+    card.className = 'lobby-table-card';
+
+    const seatsHtml = (table.seats || []).map(seat => {
+      if (seat.empty) {
+        return `<button class="lobby-seat empty-seat" data-action="join" data-table="${escapeHtml(table.id)}">
+          <span class="seat-dot">+</span>
+          <strong>Empty seat</strong>
+          <small>Join</small>
+        </button>`;
+      }
+
+      const label = seat.bot ? 'Take bot seat' : 'Playing';
+      const action = seat.bot ? 'takebot' : 'watch';
+      return `<button class="lobby-seat ${seat.bot ? 'bot-seat' : 'human-seat'}" data-action="${action}" data-table="${escapeHtml(table.id)}">
+        <span class="seat-avatar">${seat.bot ? '🤖' : '👤'}</span>
+        <strong>${escapeHtml(seat.name)}</strong>
+        <small>${label} · ${seat.score} pts</small>
+      </button>`;
+    }).join('');
+
+    const playerNames = (table.seats || [])
+      .filter(s => s.name)
+      .map(s => `${escapeHtml(s.name)}${s.bot ? ' 🤖' : ''}`)
+      .join(' · ') || 'Waiting for players';
+
+    card.innerHTML = `
+      <div class="lobby-table-top">
+        <div>
+          <h3>${escapeHtml(table.id.replace('table-', 'Table '))}</h3>
+          <p>${playerNames}</p>
+        </div>
+        <span class="lobby-state">${escapeHtml(table.state)}</span>
+      </div>
+      <div class="lobby-seat-grid">${seatsHtml}</div>
+      <div class="lobby-table-footer">
+        <span>${table.spectators} watching</span>
+        <button class="watch-lobby-btn" data-action="watch" data-table="${escapeHtml(table.id)}">Watch</button>
+      </div>
+    `;
+
+    lobbyTables.appendChild(card);
+  });
+}
+
+document.addEventListener('click', event => {
+  const btn = event.target.closest('[data-action][data-table]');
+  if (!btn) return;
+
+  const tableId = btn.dataset.table;
+  const action = btn.dataset.action;
+  const name = getPlayerName();
+
+  unlockAudio();
+  normalPress(btn);
+
+  if (action === 'join' || action === 'takebot') {
+    socket.emit('joinTableAsPlayer', { tableId, name });
+    joinScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+  }
+
+  if (action === 'watch') {
+    socket.emit('watchTable', { tableId, name });
+    joinScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+  }
+});
+
+function renderScoreBar(state) {
+  if (!scoreBar) return;
+  if (!state.players?.length) {
+    scoreBar.innerHTML = '';
+    return;
+  }
+
+  scoreBar.innerHTML = state.players.map((p, idx) => {
+    if (!p) {
+      return `<div class="score-chip empty"><span>Seat ${idx + 1}</span><strong>Empty</strong></div>`;
+    }
+    const classes = ['score-chip', p.isTurn ? 'turn' : '', state.role === 'player' && idx === state.seatIndex ? 'me' : '', p.lost ? 'lost' : ''].filter(Boolean).join(' ');
+    return `<div class="${classes}">
+      <span>${escapeHtml(p.name)}${p.bot ? ' 🤖' : ''}</span>
+      <strong>${p.score} pts</strong>
+      <em>${p.cardCount} cards</em>
+    </div>`;
+  }).join('');
+}
 
 function render(state) {
   tableTitle.textContent = `Table ${state.tableId.replace('table-', '')}`;
@@ -179,6 +298,7 @@ function render(state) {
   renderTableSeats(state);
   renderCenter(state);
   renderHand(state);
+  renderScoreBar(state);
 
   const myTurn = state.role === 'player' && state.currentTurn === state.seatIndex && state.state === 'playing';
   playBtn.disabled = !myTurn || selected.size === 0;
@@ -227,10 +347,12 @@ function renderTables(state) {
     const div = document.createElement('div');
     div.className = 'table-link';
 
+    const names = (t.seats || [])
+      .map(seat => seat.name ? `${escapeHtml(seat.name)}${seat.bot ? ' 🤖' : ''}` : 'Empty')
+      .join(' · ');
+
     const current = t.id === state.tableId ? ' · current' : '';
-    const botText = t.bots ? ` · ${t.bots} bot${t.bots > 1 ? 's' : ''}` : '';
-    const emptyText = t.empty ? ` · ${t.empty} empty` : '';
-    div.innerHTML = `<strong>${escapeHtml(t.id)}</strong>${current}<br>${t.humans || 0} human${(t.humans || 0) === 1 ? '' : 's'} · ${t.players}/4 seats${botText}${emptyText} · ${t.spectators} watching · ${t.state}`;
+    div.innerHTML = `<strong>${escapeHtml(t.id)}</strong>${current}<br><span class="table-names">${names}</span><br><span class="small">${t.state} · ${t.spectators} watching</span>`;
 
     const row = document.createElement('div');
     row.className = 'table-actions';
@@ -253,9 +375,9 @@ function renderTables(state) {
       joinBtn.addEventListener('click', () => {
         unlockAudio();
         normalPress(joinBtn);
-        const name = localStorage.getItem('cp-name') || nameInput.value.trim() || `Player ${Math.floor(Math.random() * 1000)}`;
-        localStorage.setItem('cp-name', name);
-        socket.emit('joinTableAsPlayer', { tableId: t.id, name });
+        socket.emit('joinTableAsPlayer', { tableId: t.id, name: getPlayerName() });
+        joinScreen.classList.add('hidden');
+        gameScreen.classList.remove('hidden');
       });
       row.appendChild(joinBtn);
     }

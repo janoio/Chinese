@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chinese-poker-live-v7';
+const CACHE_NAME = 'chinese-poker-live-v8';
 const APP_SHELL = [
   '/',
   '/index.html',

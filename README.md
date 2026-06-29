@@ -218,3 +218,12 @@ The app now:
 - In the first round only, the player with **3♦** starts and must play 3♦.
 - After that, the winner of the previous round starts the next round.
 - The winner does not need to include 3♦ when starting later rounds.
+
+
+## V8 lobby and score design
+
+- Redesigned the lobby: enter name, choose a table, tap an empty seat, take a bot seat, or create a new table with + New table.
+- Lobby now shows player names in each table instead of only showing "1 human".
+- Mobile view hides the side panel and puts scores in a compact bottom score bar near the cards.
+- The hand panel is sticky at the bottom on phone so players do not need to scroll up and down as much.
+- Table list inside the game also shows names instead of only counts.

@@ -14,14 +14,32 @@
 </head>
 <body>
   <main class="app">
-    <section id="joinScreen" class="panel join-panel">
-      <h1>Chinese Poker Live</h1>
-      <p>4 players per table. Extra players watch without seeing cards. Bots can fill empty seats.</p>
-      <div class="join-row">
-        <input id="nameInput" maxlength="20" placeholder="Your name" autocomplete="name" />
-        <button id="joinBtn">Join table</button>
+    <section id="joinScreen" class="lobby-screen">
+      <div class="lobby-hero">
+        <div>
+          <div class="lobby-kicker">Live card table</div>
+          <h1>Chinese Poker Live</h1>
+          <p>Enter your name, choose a seat, take a bot seat, or open a new table.</p>
+        </div>
+        <div class="lobby-name-card">
+          <label for="nameInput">Player name</label>
+          <div class="join-row">
+            <input id="nameInput" maxlength="20" placeholder="Your name" autocomplete="name" />
+            <button id="joinBtn">Quick join</button>
+          </div>
+          <button id="lobbyNewTableBtn" class="new-table-btn big-plus">+ New table</button>
+        </div>
       </div>
-      <p class="small">Card power: 3,4,5,6,7,8,9,10,J,Q,K,A,2. Suit power: ♦, ♣, ♥, ♠.</p>
+
+      <section class="lobby-panel">
+        <div class="lobby-title-row">
+          <h2>Choose a table</h2>
+          <span class="small">Tap an empty seat or take over a bot.</span>
+        </div>
+        <div id="lobbyTables" class="lobby-tables"></div>
+      </section>
+
+      <p class="small lobby-rules">Card power: 3,4,5,6,7,8,9,10,J,Q,K,A,2. Suit power: ♦, ♣, ♥, ♠.</p>
     </section>
 
     <section id="gameScreen" class="hidden">
@@ -89,6 +107,7 @@
               </div>
             </div>
             <div id="hand" class="hand"></div>
+            <div id="scoreBar" class="score-bar"></div>
             <p id="selectionHint" class="small"></p>
           </div>
         </section>
