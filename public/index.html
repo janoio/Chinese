@@ -1,123 +1,140 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Big Two — Online</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
-  <link rel="manifest" href="manifest.webmanifest" />
-  <meta name="theme-color" content="#14653e" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="Chinese Poker" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="app">
-    <section id="joinScreen" class="lobby-screen">
-      <div class="lobby-hero">
-        <div>
-          <div class="lobby-kicker">Online multiplayer</div>
-          <h1>BIG TWO</h1>
-          <p>Enter your name, choose a seat, take a bot seat, or create a table.</p>
-        </div>
-        <div class="lobby-name-card">
-          <label for="nameInput">Player name</label>
-          <div class="join-row">
-            <input id="nameInput" maxlength="20" placeholder="Your name" autocomplete="name" />
-            <button id="joinBtn">Quick join</button>
-          </div>
-          <button id="lobbyNewTableBtn" class="new-table-btn big-plus">+ New table</button>
-        </div>
+  <section class="screen" id="screen-profile">
+    <div class="panel profile-panel">
+      <h1>BIG TWO</h1>
+      <p class="sub">ONLINE MULTIPLAYER</p>
+
+      <div class="profile-preview" id="profile-preview">🃏</div>
+      <input type="text" id="inp-name" placeholder="YOUR NAME" maxlength="16" autocomplete="off" />
+      <input type="text" id="inp-avatar" placeholder="YOUR AVATAR EMOJI 🃏" maxlength="2" />
+
+      <div class="profile-buttons">
+        <button class="small-btn" id="btn-pick-photo" type="button">Upload picture</button>
+        <button class="small-btn" id="btn-take-selfie" type="button">Take selfie</button>
       </div>
+      <input class="hidden-file" type="file" id="file-avatar" accept="image/*" />
+      <input class="hidden-file" type="file" id="file-selfie" accept="image/*" capture="user" />
 
-      <section class="lobby-panel">
-        <div class="lobby-title-row">
-          <h2>Choose a table</h2>
-          <span class="small">Tap an empty seat or take over a bot.</span>
-        </div>
-        <div id="lobbyTables" class="lobby-tables"></div>
-      </section>
+      <button class="btn btn-gold" id="btn-save-profile" type="button">ENTER LOBBY</button>
+      <p class="tiny-note">Profile picture is optional. Emoji is used if no picture is selected.</p>
+    </div>
+  </section>
 
-      <p class="small lobby-rules">Card power: 3,4,5,6,7,8,9,10,J,Q,K,A,2. Suit power: ♦, ♣, ♥, ♠.</p>
-    </section>
-
-    <section id="gameScreen" class="hidden">
-      <header class="topbar">
+  <section class="screen hidden" id="screen-lobby">
+    <div class="panel lobby-panel">
+      <div class="panel-head">
         <div>
-          <h2 id="tableTitle">Table</h2>
-          <p id="statusLine">Connecting...</p>
+          <div class="muted-mini">Playing as</div>
+          <div class="lobby-greeting" id="lobby-greeting">—</div>
         </div>
-        <div class="top-actions">
-          <button id="newTableBtn" class="new-table-btn">New table</button>
-          <button id="installAppBtn" class="install-btn hidden">Install on phone</button>
-          <button id="leaveGameBtn" class="leave-game-btn hidden">Leave game</button>
-          <button id="endGameBtn" class="end-game-btn hidden">End game</button>
-          <button id="addBotBtn">Add bot</button>
-        </div>
-      </header>
+        <div class="connection-pill"><span class="conn-dot connecting" id="conn-dot"></span><span id="conn-label">Connecting…</span></div>
+      </div>
+      <button class="btn btn-gold" id="btn-create-room" type="button">+ CREATE TABLE</button>
+      <div class="divider">OR JOIN</div>
+      <input type="text" id="inp-room-code" placeholder="ROOM CODE" maxlength="6" class="code-input" />
+      <button class="btn btn-green" id="btn-join-code" type="button">JOIN TABLE</button>
+      <div class="divider">LIVE TABLES</div>
+      <div class="room-list" id="room-list"><div class="loading-text">Loading tables…</div></div>
+      <div class="two-col-actions">
+        <button class="btn btn-ghost" id="btn-local" type="button">Local bot game</button>
+        <button class="btn btn-ghost" id="btn-change-profile" type="button">Change profile</button>
+      </div>
+    </div>
+  </section>
 
-      <div id="toast" class="toast hidden"></div>
+  <section class="screen hidden" id="screen-waiting">
+    <div class="panel waiting-panel">
+      <div class="muted-mini spaced">ROOM CODE</div>
+      <div class="room-code" id="room-code-display">——</div>
+      <div class="seat-grid" id="seat-grid"></div>
+      <div class="spectator-list" id="waiting-spectators"></div>
+      <div class="waiting-actions" id="waiting-actions">
+        <button class="btn btn-gold" id="btn-start" type="button">START GAME</button>
+        <button class="btn btn-green" id="btn-add-bot-waiting" type="button">+ Add bot</button>
+        <div class="waiting-hint" id="waiting-hint">Waiting…</div>
+      </div>
+      <button class="btn btn-ghost" id="btn-leave-waiting" type="button">Leave table</button>
+    </div>
+  </section>
 
-      <section class="layout">
-        <aside class="panel side">
-          <h3>Players</h3>
-          <div id="playersList"></div>
+  <section id="game-screen" class="game-screen hidden">
+    <header class="top-bar" id="top-bar">
+      <div class="top-main">
+        <div class="table-title"><span id="table-name">Table</span></div>
+        <div class="table-sub" id="table-subtitle">target score 101</div>
+      </div>
+      <div class="top-actions" id="top-actions">
+        <button class="top-btn gold" id="btn-new-table" type="button">New table</button>
+        <button class="top-btn" id="btn-leave-game" type="button">Leave game</button>
+        <button class="top-btn danger" id="btn-end-game" type="button">End game 0/1</button>
+        <button class="top-btn green" id="btn-add-bot" type="button">Add bot</button>
+      </div>
+    </header>
 
-          <h3>Watchers queue</h3>
-          <div id="spectatorsList" class="small"></div>
-          <button id="takeSeatBtn" class="hidden">Take open seat</button>
-          <button id="continueWatchingBtn" class="hidden">Continue watching</button>
+    <main class="table-area" id="game-table">
+      <div class="felt-ring"></div>
+      <div id="spectator-banner">👁 SPECTATING</div>
 
-          <h3>Tables</h3>
-          <div id="tablesList" class="small"></div>
-        </aside>
+      <div class="player-slot slot-top" id="slot-top"></div>
+      <div class="player-slot slot-left" id="slot-left"></div>
+      <div class="player-slot slot-right" id="slot-right"></div>
+      <div class="player-slot slot-bottom" id="slot-bottom"></div>
 
-        <section class="table-area">
-          <section class="table-stage">
-            <div class="poker-table-wrap">
-              <div id="seatTop" class="seat seat-top"></div>
-              <div id="seatRight" class="seat seat-right"></div>
-              <div id="seatBottom" class="seat seat-bottom"></div>
-              <div id="seatLeft" class="seat seat-left"></div>
+      <div class="center-zone">
+        <div class="last-played-by" id="last-played-by"></div>
+        <div class="played-cards" id="played-cards"></div>
+        <div class="center-message" id="center-message">No active hand. Choose a single, pair, triplet, or a 5-card poker hand.</div>
+      </div>
+      <div class="turn-indicator" id="turn-label">—</div>
+      <div class="event-layer" id="event-layer"></div>
+    </main>
 
-              <div class="poker-table-shell">
-                <div class="poker-table-felt">
-                  <div id="impactBurst" class="impact-burst"></div>
-                  <div id="tableCenterInfo" class="table-center-info">
-                    <div id="turnInfo" class="turn-info"></div>
-                    <div id="lastPlay" class="last-play"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
+    <footer class="bottom-panel" id="human-area">
+      <div class="action-row">
+        <button class="action-btn play" id="playBtn" type="button">Play normal</button>
+        <button class="action-btn smash" id="smashBtn" type="button">Smash hand</button>
+        <button class="action-btn pass" id="passBtn" type="button">Pass</button>
+        <button class="round-btn" id="commentBtn" type="button">💬</button>
+        <button class="round-btn" id="emoteBtn" type="button">😎</button>
+      </div>
+      <div class="score-strip" id="score-strip"></div>
+      <div class="hand-scroll" id="hand-scroll"><div class="hand" id="hand"></div></div>
+      <div class="hint-text" id="hint-text">Cards are sorted from 3 up to 2.</div>
+    </footer>
+  </section>
 
-            <div class="panel center-panel">
-              <div id="roundResult" class="round-result"></div>
-            </div>
-          </section>
+  <div class="sheet-backdrop hidden" id="sheet-backdrop"></div>
+  <section class="bottom-sheet hidden" id="comment-sheet">
+    <div class="sheet-handle"></div>
+    <h3>Send comment</h3>
+    <div class="quick-grid" id="comment-grid"></div>
+    <div class="custom-row">
+      <input type="text" id="custom-comment" placeholder="Write comment" maxlength="32" />
+      <button class="small-btn green" id="btn-send-custom" type="button">Send</button>
+      <button class="small-btn" id="btn-save-comment" type="button">Add</button>
+    </div>
+  </section>
 
-          <div class="panel hand-panel">
-            <div class="hand-header">
-              <h3 id="handTitle">Your hand</h3>
-              <div class="actions">
-                <button id="playBtn">Play normal</button>
-                <button id="smashBtn" class="smash-btn">Smash hand</button>
-                <button id="passBtn">Pass</button>
-              </div>
-            </div>
-            <div id="hand" class="hand"></div>
-            <div id="scoreBar" class="score-bar"></div>
-            <p id="selectionHint" class="small"></p>
-          </div>
-        </section>
-      </section>
-    </section>
-  </main>
+  <section class="bottom-sheet sticker-sheet hidden" id="sticker-sheet">
+    <div class="sheet-handle"></div>
+    <h3>Send sticker</h3>
+    <div class="sticker-grid" id="sticker-grid"></div>
+  </section>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
+  <div class="toast" id="toast"></div>
+  <div class="modal" id="modal"><div class="modal-panel" id="modal-inner"></div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
 </body>
 </html>
