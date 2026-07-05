@@ -1,236 +1,108 @@
-# Chinese Poker Live - Phone Final Version
+# Big Two 🃏
 
-This version is made for phones and includes:
-- 4-player live multiplayer
-- spectators and queue
-- bots
-- green table with 4 seats/chairs
-- card throwing animation
-- card selection sounds
-- strong smash sound when playing a hand
-- installable phone app/PWA files
-- Render deployment file
+An online, mobile-first version of **Big Two** (锄大地 / Chinese poker). Play with
+friends across the internet, or against bots offline. No build step, no
+framework — just static files you can host anywhere.
 
-Read `STEP_BY_STEP_PHONE_PUBLIC.md` to publish it for friends.
+![Big Two table](docs/screenshot-game.png)
 
-# Chinese Poker Live
+---
 
-A real-time 4-player Chinese Poker / Big Two style browser game.
+## Features
 
-## What is included
+- **Play anywhere** — create a table, share the 6-character code, and friends join instantly.
+- **Offline bot mode** — no internet or backend required; play 1 human vs 3 bots.
+- **Full Big Two rules** — singles, pairs, triplets and all five-card hands
+  (straight, flush, full house, four-of-a-kind, straight flush), correct suit
+  ranking, 3♦ opening, and pass-to-control flow.
+- **Round & game scoring** — house-rule penalties, running totals, first to 101 loses.
+- **Personal touches** — profile photo or emoji avatar, quick comments, and
+  stickers that pop up on the table.
+- **Made for phones** — safe-area aware, one-handed layout, smooth card animations,
+  and it frames itself neatly on desktop too.
 
-- 4 players per table
-- Live multiplayer using Socket.IO
-- Extra players join as spectators
-- Spectators cannot see player cards
-- Spectators are kept in queue order
-- If a player reaches 101 points, they lose and may continue watching
-- First spectator in queue can take the open seat
-- If 4 extra spectators are waiting, a new table is opened automatically
-- Option to add bots when seats are empty
-- Players select cards first, then press **Play hand**
-- Wrong hand / wrong card messages are shown privately only to that player
-- Pass button supported
-- Cards sorted from 3 up to 2, with suit order ♦ ♣ ♥ ♠
+## Quick start (local)
 
-## Rules implemented
-
-Card power from weakest to strongest:
-
-`3, 4, 5, 6, 7, 8, 9, 10, J, Q, K, A, 2`
-
-Suit power from weakest to strongest:
-
-`diamonds ♦, clubs/leaf ♣, hearts ♥, spades ♠`
-
-The player with `3♦` starts the round. In this version, the first hand must include `3♦`.
-
-Valid hands:
-
-- Single: 1 card
-- Pair: 2 cards with the same rank
-- Triplet: 3 cards with the same rank
-- 5-card poker hands:
-  - Straight
-  - Flush
-  - Full house
-  - Quads + 1 extra card
-  - Straight flush
-
-When the active play is single, all players must play singles until everyone passes. Same for pair, triplet, or 5-card hands.
-
-Round scoring when a player finishes all cards:
-
-- 1 to 4 cards left: cards × 1
-- 5 to 9 cards left: cards × 2
-- 10 to 13 cards left: cards × 3
-
-The first player to reach 101 points loses.
-
-## Run locally
-
-Install Node.js 18 or later.
+You need [Node.js](https://nodejs.org) 18+.
 
 ```bash
-npm install
-npm start
+npm start          # serves the game at http://localhost:5173
 ```
 
-Open:
+Open the URL on your computer or phone (same Wi-Fi) and hit **Play vs bots** —
+no backend needed. To develop against a different port: `npm start 8080`.
 
-```text
-http://localhost:3000
+Run the rules test suite (it simulates hundreds of full games):
+
+```bash
+npm test
 ```
 
-To test with friends on the same Wi-Fi, run on your laptop and share your local network IP, for example:
+## Project structure
 
-```text
-http://192.168.1.20:3000
+```
+bigtwo/
+├─ public/                 ← everything that gets hosted
+│  ├─ index.html           ← markup + screens
+│  ├─ styles.css           ← design system + table styling (mobile-first)
+│  ├─ engine.js            ← pure Big Two rules (no DOM) — the game's brain
+│  ├─ app.js               ← UI, state, networking, bots
+│  └─ assets/stickers/     ← sticker images
+├─ test/engine.test.js     ← engine unit + full-game simulation tests
+├─ supabase-schema.sql     ← optional online-play database schema
+├─ serve.js                ← tiny local dev server
+└─ package.json
 ```
 
-## Make it public online
+The **rules live in `engine.js`** as pure functions, fully separated from the
+UI. That is what makes them testable (`npm test`) and keeps `app.js` focused on
+rendering and syncing.
 
-GitHub Pages is not enough for this project because the game needs a live backend server. Use GitHub only for storing the code, then deploy it to a Node.js hosting service.
+## Deploying
 
-### Option A: Render
+It is a static site — host the **contents of `public/`** on any static host:
 
-1. Create a new GitHub repository.
-2. Upload all files from this folder.
-3. Go to Render.
-4. Create a new **Web Service**.
-5. Connect your GitHub repository.
-6. Use these settings:
-   - Build command: `npm install`
-   - Start command: `npm start`
-7. Deploy.
-8. Share the Render URL with your friends.
+- **GitHub Pages** — push `public/` (or set Pages to serve from it) and you're live.
+- **Netlify / Vercel / Render / Cloudflare Pages** — point the site at `public/`
+  as the publish directory, no build command.
 
-### Option B: Railway
+## Online multiplayer (optional)
 
-1. Create a new GitHub repository.
-2. Upload all files from this folder.
-3. Go to Railway.
-4. Create a new project from GitHub.
-5. Select this repository.
-6. Railway detects Node.js automatically.
-7. Deploy and share the public URL.
+Online play uses [Supabase](https://supabase.com) (a Postgres database with
+realtime). If it isn't configured, the game silently falls back to local bot mode.
 
-## Files
+1. Create a free Supabase project.
+2. In the SQL editor, run [`supabase-schema.sql`](./supabase-schema.sql).
+3. In `public/app.js`, set your project values at the top:
 
-```text
-server.js              Main backend: rooms, tables, rules, bots, scoring
-public/index.html      Browser page
-public/style.css       Game design
-public/client.js       Browser logic and Socket.IO client
-package.json           Dependencies and start command
-render.yaml            Optional Render blueprint
-```
+   ```js
+   const CONFIG = {
+     SUPABASE_URL: 'https://YOUR-PROJECT.supabase.co',
+     SUPABASE_ANON_KEY: 'YOUR-ANON-KEY',
+   };
+   ```
 
-## Easy rule changes
+The `anon` key is meant to be public (it ships in the browser). See the security
+note in the schema file about the intentionally-open row-level-security policies.
 
-Open `server.js` and edit these constants:
+## How the game plays
 
-```js
-const SUITS = ['D', 'C', 'H', 'S'];
-const RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2'];
-const TARGET_SCORE = 101;
-```
+- Cards rank **3 (low) → 2 (high)**; suits rank **♦ < ♣ < ♥ < ♠**.
+- The holder of **3♦** opens the very first deal. After that, the previous
+  round's winner leads.
+- Beat the current play with a **stronger combo of the same size**, or pass. If
+  everyone passes, the last player to play takes control and leads anything.
+- Empty your hand to win the round. Everyone else scores penalty points for the
+  cards they're holding (1–4 ×1, 5–9 ×2, 10–12 ×3, a full 13 = 39).
+- When someone reaches **101**, the game ends and the **lowest total wins**.
 
-To allow the first player to play any hand, search for this line and remove it:
+Tap **?** in-game for the same rundown.
 
-```js
-if (table.firstMove && !ids.includes('3D')) return privateError(socketId, 'First hand must include 3♦.');
-```
+## Notes for maintainers
 
-## Important note
-
-This is a first complete playable version. The game rules you described are implemented, but card games often have small family-rule differences. After you test with friends, you can adjust the rules inside `server.js`.
-
-
-## Phone / PWA version
-
-This project is phone-friendly and installable as a Progressive Web App.
-
-After you deploy it online, open the public link on your phone.
-
-### Android
-1. Open the link in Chrome.
-2. Tap the three dots menu.
-3. Tap **Install app** or **Add to Home screen**.
-4. The game will appear like an app icon.
-
-### iPhone
-1. Open the link in Safari.
-2. Tap the Share button.
-3. Tap **Add to Home Screen**.
-4. The game will appear like an app icon.
-
-Important: the app can be installed on the phone, but live multiplayer still needs the online server. If the laptop is hosting `localhost` and the laptop is off, nobody can play. Deploy it on Render/Railway/Fly to keep it available from phones.
-
-
-## V2 fixes
-- Bots now choose singles, pairs, triplets, and 5-card hands when they lead.
-- Phone table view is more compact so the green table is easier to see.
-- There are two play buttons: **Play normal** and **Smash hand**.
-- Normal play has a softer card sound. Smash hand has the strong table impact sound.
-
-
-## V3 highest rule
-
-When any player has only 1 card left, the player on his right must play the strongest legal hand on their turn.
-
-The app now:
-- shows a HIGHEST warning,
-- says “highest” using phone/browser voice,
-- blocks pass if the right-side player has any legal hand,
-- blocks weaker hands and only accepts the strongest legal hand,
-- makes bots follow the same rule.
-
-
-## V4 end game fixes
-
-- If all human players leave, the bots leave too and the table ends/reset automatically.
-- If a player closes the app during a live game, a bot still takes over only when at least one human remains.
-- Added **End game** voting when there are no bots at the table.
-- All human players must confirm before the game ends.
-
-
-## V5 leave button fix
-
-- Added a visible **Leave game** button.
-- On phones, closing the browser/app can delay the disconnect, so use **Leave game** before closing.
-- If the last human player presses **Leave game**, bots immediately leave and the game resets.
-- If a player disconnects and no other human players remain, bots also leave and the table resets.
-
-
-## V6 tables and stronger bots
-
-- Added **New table** button so players can open another table immediately.
-- Players can join another table instead of waiting as spectators.
-- Players can take over a **bot seat** during a game.
-- Bots are stronger and play more combinations: pairs, triplets, five-card hands, and stronger blocking hands.
-- **Leave game** remains available.
-- **End game** voting remains available and now also works at tables with bots; all human players must confirm.
-
-
-## V7 winner starts rule
-
-- In the first round only, the player with **3♦** starts and must play 3♦.
-- After that, the winner of the previous round starts the next round.
-- The winner does not need to include 3♦ when starting later rounds.
-
-
-## V8 lobby and score design
-
-- Redesigned the lobby: enter name, choose a table, tap an empty seat, take a bot seat, or create a new table with + New table.
-- Lobby now shows player names in each table instead of only showing "1 human".
-- Mobile view hides the side panel and puts scores in a compact bottom score bar near the cards.
-- The hand panel is sticky at the bottom on phone so players do not need to scroll up and down as much.
-- Table list inside the game also shows names instead of only counts.
-
-
-## V9 design update
-
-- Applied the provided Big Two visual style to the existing multiplayer game.
-- Kept the existing server/game rules and only changed the frontend design.
-- Added Cairo font, gold/green theme, round avatar seats, casino-style cards, table felt, bottom hand area, and cleaner lobby/table cards.
+- **No dependencies to install** for the game itself — `npm` scripts only use Node's
+  standard library. The Supabase client is loaded from a CDN in `index.html`.
+- In an online room, one client (the host, or the lowest-seated human if the host
+  leaves) drives the bots and finalizes rounds, so play never stalls.
+- User-supplied values (names, avatars, stickers) are escaped/whitelisted before
+  rendering — see `safeText` / `safeImg` in `app.js`.

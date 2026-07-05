@@ -1,18 +1,15 @@
 {
-  "name": "chinese-poker-live",
+  "name": "big-two",
   "version": "1.0.0",
-  "description": "A live 4-player Big Two / Chinese poker style card game with spectators and bots.",
-  "main": "server.js",
+  "description": "Big Two — online multiplayer card game (vanilla JS, Supabase, zero build).",
+  "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node serve.js",
+    "dev": "node serve.js",
+    "test": "node test/engine.test.js"
   },
   "engines": {
     "node": ">=18"
-  },
-  "dependencies": {
-    "express": "^4.19.2",
-    "socket.io": "^4.7.5"
   },
   "license": "MIT"
 }

@@ -3,61 +3,92 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#04150f" />
+  <meta name="description" content="Big Two — play the classic card game online with friends or against bots." />
   <title>Big Two — Online</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d2a1e'/%3E%3Crect x='2.5' y='2.5' width='27' height='27' rx='5.5' fill='none' stroke='%23e6c766' stroke-width='1.5'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Georgia,serif' font-weight='bold' fill='%23e6c766' text-anchor='middle'%3E2%3C/text%3E%3C/svg%3E" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- ============================ PROFILE ============================ -->
   <section class="screen" id="screen-profile">
     <div class="panel profile-panel">
-      <h1>BIG TWO</h1>
-      <p class="sub">ONLINE MULTIPLAYER</p>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span class="pip pip-s">♠</span><span class="pip pip-h">♥</span>
+          <span class="pip pip-c">♣</span><span class="pip pip-d">♦</span>
+        </div>
+        <h1 class="brand-title">BIG&nbsp;TWO</h1>
+        <p class="brand-sub">ONLINE&nbsp;·&nbsp;MULTIPLAYER</p>
+      </div>
 
       <div class="profile-preview" id="profile-preview">🃏</div>
-      <input type="text" id="inp-name" placeholder="YOUR NAME" maxlength="16" autocomplete="off" />
-      <input type="text" id="inp-avatar" placeholder="YOUR AVATAR EMOJI 🃏" maxlength="2" />
+
+      <label class="field-label" for="inp-name">Display name</label>
+      <input type="text" id="inp-name" placeholder="Your name" maxlength="16" autocomplete="off" />
+
+      <label class="field-label" for="inp-avatar">Avatar emoji</label>
+      <input type="text" id="inp-avatar" placeholder="🃏" maxlength="2" autocomplete="off" />
 
       <div class="profile-buttons">
-        <button class="small-btn" id="btn-pick-photo" type="button">Upload picture</button>
-        <button class="small-btn" id="btn-take-selfie" type="button">Take selfie</button>
+        <button class="chip-btn" id="btn-pick-photo" type="button">📁 Upload photo</button>
+        <button class="chip-btn" id="btn-take-selfie" type="button">🤳 Take selfie</button>
       </div>
       <input class="hidden-file" type="file" id="file-avatar" accept="image/*" />
       <input class="hidden-file" type="file" id="file-selfie" accept="image/*" capture="user" />
 
       <button class="btn btn-gold" id="btn-save-profile" type="button">ENTER LOBBY</button>
-      <p class="tiny-note">Profile picture is optional. Emoji is used if no picture is selected.</p>
+      <p class="tiny-note">A profile photo is optional — your emoji is used if you skip it.</p>
     </div>
   </section>
 
+  <!-- ============================= LOBBY ============================= -->
   <section class="screen hidden" id="screen-lobby">
     <div class="panel lobby-panel">
       <div class="panel-head">
-        <div>
+        <div class="head-id">
           <div class="muted-mini">Playing as</div>
           <div class="lobby-greeting" id="lobby-greeting">—</div>
         </div>
-        <div class="connection-pill"><span class="conn-dot connecting" id="conn-dot"></span><span id="conn-label">Connecting…</span></div>
+        <div class="connection-pill" id="conn-pill">
+          <span class="conn-dot connecting" id="conn-dot"></span>
+          <span id="conn-label">Connecting…</span>
+        </div>
       </div>
+
       <button class="btn btn-gold" id="btn-create-room" type="button">+ CREATE TABLE</button>
-      <div class="divider">OR JOIN</div>
-      <input type="text" id="inp-room-code" placeholder="ROOM CODE" maxlength="6" class="code-input" />
-      <button class="btn btn-green" id="btn-join-code" type="button">JOIN TABLE</button>
+
+      <div class="divider">OR JOIN A CODE</div>
+      <div class="join-row">
+        <input type="text" id="inp-room-code" placeholder="ROOM CODE" maxlength="6" class="code-input" />
+        <button class="btn btn-green join-btn" id="btn-join-code" type="button">JOIN</button>
+      </div>
+
       <div class="divider">LIVE TABLES</div>
       <div class="room-list" id="room-list"><div class="loading-text">Loading tables…</div></div>
+
       <div class="two-col-actions">
-        <button class="btn btn-ghost" id="btn-local" type="button">Local bot game</button>
-        <button class="btn btn-ghost" id="btn-change-profile" type="button">Change profile</button>
+        <button class="btn btn-ghost" id="btn-local" type="button">🤖 Play vs bots</button>
+        <button class="btn btn-ghost" id="btn-change-profile" type="button">👤 Edit profile</button>
       </div>
+      <button class="text-link" id="btn-rules-lobby" type="button">How to play</button>
     </div>
   </section>
 
+  <!-- ============================ WAITING ============================ -->
   <section class="screen hidden" id="screen-waiting">
     <div class="panel waiting-panel">
-      <div class="muted-mini spaced">ROOM CODE</div>
-      <div class="room-code" id="room-code-display">——</div>
+      <div class="muted-mini spaced">ROOM CODE — share it</div>
+      <button class="room-code" id="room-code-display" type="button" title="Tap to copy">——</button>
+      <div class="copy-hint" id="copy-hint">Tap the code to copy</div>
+
       <div class="seat-grid" id="seat-grid"></div>
       <div class="spectator-list" id="waiting-spectators"></div>
+
       <div class="waiting-actions" id="waiting-actions">
         <button class="btn btn-gold" id="btn-start" type="button">START GAME</button>
         <button class="btn btn-green" id="btn-add-bot-waiting" type="button">+ Add bot</button>
@@ -67,22 +98,25 @@
     </div>
   </section>
 
+  <!-- ============================= GAME ============================= -->
   <section id="game-screen" class="game-screen hidden">
     <header class="top-bar" id="top-bar">
       <div class="top-main">
         <div class="table-title"><span id="table-name">Table</span></div>
-        <div class="table-sub" id="table-subtitle">target score 101</div>
+        <div class="table-sub" id="table-subtitle">Target score 101</div>
       </div>
       <div class="top-actions" id="top-actions">
+        <button class="top-btn" id="btn-rules-game" type="button" title="How to play">?</button>
+        <button class="top-btn green" id="btn-add-bot" type="button">+ Bot</button>
         <button class="top-btn gold" id="btn-new-table" type="button">New table</button>
-        <button class="top-btn" id="btn-leave-game" type="button">Leave game</button>
-        <button class="top-btn danger" id="btn-end-game" type="button">End game 0/1</button>
-        <button class="top-btn green" id="btn-add-bot" type="button">Add bot</button>
+        <button class="top-btn danger" id="btn-end-game" type="button">End game</button>
+        <button class="top-btn" id="btn-leave-game" type="button">Leave</button>
       </div>
     </header>
 
     <main class="table-area" id="game-table">
-      <div class="felt-ring"></div>
+      <div class="felt-ring" aria-hidden="true"></div>
+      <div class="felt-logo" aria-hidden="true">BIG TWO</div>
       <div id="spectator-banner">👁 SPECTATING</div>
 
       <div class="player-slot slot-top" id="slot-top"></div>
@@ -93,41 +127,44 @@
       <div class="center-zone">
         <div class="last-played-by" id="last-played-by"></div>
         <div class="played-cards" id="played-cards"></div>
-        <div class="center-message" id="center-message">No active hand. Choose a single, pair, triplet, or a 5-card poker hand.</div>
+        <div class="center-message" id="center-message">No cards in play — lead any combo.</div>
       </div>
+
       <div class="turn-indicator" id="turn-label">—</div>
       <div class="event-layer" id="event-layer"></div>
     </main>
 
     <footer class="bottom-panel" id="human-area">
-      <div class="action-row">
-        <button class="action-btn play" id="playBtn" type="button">Play normal</button>
-        <button class="action-btn smash" id="smashBtn" type="button">Smash hand</button>
-        <button class="action-btn pass" id="passBtn" type="button">Pass</button>
-        <button class="round-btn" id="commentBtn" type="button">💬</button>
-        <button class="round-btn" id="emoteBtn" type="button">😎</button>
-      </div>
       <div class="score-strip" id="score-strip"></div>
       <div class="hand-scroll" id="hand-scroll"><div class="hand" id="hand"></div></div>
-      <div class="hint-text" id="hint-text">Cards are sorted from 3 up to 2.</div>
+      <div class="hint-text" id="hint-text">Your cards run from 3 (low) up to 2 (high).</div>
+      <div class="action-row">
+        <button class="round-btn" id="commentBtn" type="button" title="Send comment">💬</button>
+        <button class="round-btn" id="emoteBtn" type="button" title="Send sticker">😎</button>
+        <button class="action-btn sort" id="sortBtn" type="button" title="Sort hand">⇅ Sort</button>
+        <button class="action-btn pass" id="passBtn" type="button">Pass</button>
+        <button class="action-btn play" id="playBtn" type="button">Play</button>
+      </div>
     </footer>
   </section>
 
+  <!-- ========================= SHEETS / MODAL ========================= -->
   <div class="sheet-backdrop hidden" id="sheet-backdrop"></div>
+
   <section class="bottom-sheet hidden" id="comment-sheet">
     <div class="sheet-handle"></div>
-    <h3>Send comment</h3>
+    <h3>Send a comment</h3>
     <div class="quick-grid" id="comment-grid"></div>
     <div class="custom-row">
-      <input type="text" id="custom-comment" placeholder="Write comment" maxlength="32" />
-      <button class="small-btn green" id="btn-send-custom" type="button">Send</button>
-      <button class="small-btn" id="btn-save-comment" type="button">Add</button>
+      <input type="text" id="custom-comment" placeholder="Write a comment" maxlength="32" />
+      <button class="chip-btn green" id="btn-send-custom" type="button">Send</button>
+      <button class="chip-btn" id="btn-save-comment" type="button">Save</button>
     </div>
   </section>
 
   <section class="bottom-sheet sticker-sheet hidden" id="sticker-sheet">
     <div class="sheet-handle"></div>
-    <h3>Send sticker</h3>
+    <h3>Send a sticker</h3>
     <div class="sticker-grid" id="sticker-grid"></div>
   </section>
 
@@ -135,6 +172,7 @@
   <div class="modal" id="modal"><div class="modal-panel" id="modal-inner"></div></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="engine.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
