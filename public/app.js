@@ -4,18 +4,15 @@
    Game rules live in engine.js (loaded first, exposed as `BigTwo`). This file
    handles the DOM, local + online rooms (Supabase), bots, and rendering.
 
-   Online play is optional: with no/failed Supabase connection the app runs a
-   fully local game against bots. To use your own backend, set the two values
-   in CONFIG below and run supabase-schema.sql in the Supabase SQL editor.
+   Online play requires the original Supabase project; connection errors are
+   visible. Local bot play is a separate explicit choice. Connection settings
+   live in config.js; supabase-schema.sql upgrades the existing rooms table.
    ========================================================================== */
 'use strict';
 
 const E = window.BigTwo;
 
-const CONFIG = {
-  SUPABASE_URL: 'https://nrzhizemptyqdukulepk.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5yemhpemVtcHR5cWR1a3VsZXBrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MzcwMTAsImV4cCI6MjA5ODMxMzAxMH0.yhZshfDfblDz5ycil8VxJENBX3jqWHg99FrxQ8LVnIY',
-};
+const CONFIG = window.BIG_TWO_CONFIG || {};
 
 const QUICK_COMMENTS_DEFAULT = ['omak wen', 'nice', 'bzez', 'gel', 'epique', 'thin', 'kezzzeb', 'btentek', 'pegasus'];
 const BOT_NAMES = ['Alex', 'Jordan', 'Sam', 'Rami', 'Nour', 'Kevin'];
@@ -49,6 +46,25 @@ let lastRenderedPlayId = null;
 let renderedEventIds = new Set();
 let usingLocalMode = false;
 let handSortMode = 'rank';
+let roomPoll = null, syncGeneration = 0, roomChange = null;
+let mutationBusy = false, connectionReady = false, presenceReady = false;
+let disconnectedSince = new Map();
+let scoreModalKey = '';
+const storage = {
+  getItem(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  setItem(key, value) { try { localStorage.setItem(key, value); } catch { /* Private browsing or quota. */ } },
+  removeItem(key) { try { localStorage.removeItem(key); } catch {} },
+};
+function readJSON(key, fallback) {
+  try { const v = JSON.parse(storage.getItem(key)); return v && typeof v === typeof fallback && Array.isArray(v) === Array.isArray(fallback) ? v : fallback; }
+  catch { return fallback; }
+}
+function connectionError(error) {
+  if (error?.code === '42P01' || error?.code === 'PGRST205') return 'The rooms table is missing. Run supabase-schema.sql in Supabase.';
+  if (error?.code === '42501') return 'Database permissions blocked the room. Run the supplied SQL setup.';
+  if (/jwt|api key/i.test(error?.message || '')) return 'The public Supabase key is invalid. Check config.js.';
+  return 'Cannot reach online tables. Check your internet and the Supabase project settings in config.js.';
+}
 
 let ME = { uid: '', name: '', avatar: '🃏', avatarImg: '' };
 let ROOM = null;
@@ -72,9 +88,8 @@ const safeText = (v) => String(v ?? '').replace(/[&<>'"]/g, (m) =>
 // is dropped, which closes an attribute-injection / XSS vector.
 function safeImg(url) {
   if (typeof url !== 'string' || !url) return '';
-  if (url.startsWith('data:image/')) return url;
+  if (url.length <= 100000 && /^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(url)) return url;
   if (STICKER_SRCS.has(url)) return url;
-  if (/^assets\/[\w./-]+$/.test(url)) return url;
   return '';
 }
 
@@ -130,10 +145,10 @@ window.addEventListener('load', boot);
 function boot() {
   bindUI();
   initSupabase();
-  ME.uid = localStorage.getItem('bt_uid') || uid();
-  localStorage.setItem('bt_uid', ME.uid);
+  ME.uid = storage.getItem('bt_uid') || uid();
+  storage.setItem('bt_uid', ME.uid);
 
-  const saved = JSON.parse(localStorage.getItem('bt_profile') || '{}');
+  const saved = readJSON('bt_profile', {});
   if (saved.name) {
     ME = { ...ME, name: saved.name, avatar: saved.avatar || '🃏', avatarImg: safeImg(saved.avatarImg || '') };
     selectedProfileImage = ME.avatarImg || '';
@@ -141,6 +156,8 @@ function boot() {
     $('inp-avatar').value = ME.avatar;
     updateProfilePreview();
     initLobby();
+    const resume = readJSON('bt_room_resume', {});
+    if (resume.roomId && onlineAvailable) joinRoom(resume.roomId);
   } else {
     updateProfilePreview();
     showScreen('screen-profile');
@@ -193,6 +210,11 @@ function bindUI() {
 
   renderCommentSheet();
   renderStickerSheet();
+  $('btn-retry-online').addEventListener('click', () => { initSupabase(); initLobby(); });
+  $('score-strip').addEventListener('click', () => { if (GAME_STATE && /^(roundOver|gameOver)$/.test(GAME_STATE.phase)) showScoreModal(GAME_STATE); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeSheets(); $('modal').classList.remove('show'); } });
+  const code = new URLSearchParams(location.search).get('room');
+  if (/^[A-Z0-9]{6}$/i.test(code || '')) $('inp-room-code').value = code.toUpperCase();
 }
 
 // ------------------------------ Profile ------------------------------
@@ -247,7 +269,7 @@ function saveProfile() {
   const avatar = $('inp-avatar').value.trim() || ME.avatar || '🃏';
   if (!name) return toast('Enter a name');
   ME = { ...ME, name, avatar, avatarImg: safeImg(selectedProfileImage || ME.avatarImg || '') };
-  localStorage.setItem('bt_profile', JSON.stringify({ name: ME.name, avatar: ME.avatar, avatarImg: ME.avatarImg }));
+  storage.setItem('bt_profile', JSON.stringify({ name: ME.name, avatar: ME.avatar, avatarImg: ME.avatarImg }));
   initLobby();
 }
 
@@ -263,6 +285,7 @@ function initLobby() {
     `${img ? `<span class="inline-pic"><img src="${img}" alt=""></span>` : safeText(ME.avatar)} ${safeText(ME.name)}`;
   showScreen('screen-lobby');
   closeRealtime();
+  connectionReady = false;
   usingLocalMode = false;
   setConnStatus(onlineAvailable ? 'connecting' : 'disconnected');
   if (lobbyInterval) clearInterval(lobbyInterval);
@@ -277,18 +300,23 @@ function initLobby() {
 async function loadRooms() {
   if (!onlineAvailable || !spClient) return renderLocalLobby();
   try {
-    const { data, error } = await spClient.from('rooms').select('*').order('created_at', { ascending: false }).limit(20);
+    const { data, error } = await spClient.from('rooms').select('id,code,seats,playing,deal,updated_at').order('created_at', { ascending: false }).limit(20);
     if (error) throw error;
+    connectionReady = true;
     renderRoomList(data || []);
+    $('online-error').classList.add('hidden');
     setConnStatus('connected');
   } catch (err) {
     console.error(err);
     setConnStatus('disconnected');
-    renderLocalLobby();
+    connectionReady = false;
+    renderLocalLobby(connectionError(err));
   }
 }
 
-function renderLocalLobby() {
+function renderLocalLobby(message = 'Online play is not configured or the connection library could not load. Check config.js, then retry.') {
+  $('online-error').classList.remove('hidden');
+  $('online-error-text').textContent = message;
   const list = $('room-list');
   list.innerHTML = `<div class="room-item" data-local="1">
     <div><div class="room-name">LOCAL TABLE</div><div class="room-meta">You vs 3 bots · works offline</div></div>
@@ -311,7 +339,7 @@ function renderRoomList(rooms) {
     const avatars = seats.filter(Boolean).map((p) => (safeImg(p.avatarImg) ? '📷' : safeText(p.avatar || '🃏'))).join(' ');
     return `<div class="room-item" data-room="${safeText(room.id)}">
       <div><div class="room-name">${safeText(room.code || 'TABLE')} ${avatars}</div>
-      <div class="room-meta">${count}/4 players · deal ${room.deal || 1}</div></div>${badge}</div>`;
+      <div class="room-meta">${count}/4 players · deal ${safeText(room.deal || 1)}</div></div>${badge}</div>`;
   }).join('');
   list.querySelectorAll('[data-room]').forEach((el) => el.addEventListener('click', () => joinRoom(el.dataset.room)));
 }
@@ -319,7 +347,8 @@ function renderRoomList(rooms) {
 // ------------------------------- Rooms -------------------------------
 async function createRoom() {
   if (!ME.name) return showScreen('screen-profile');
-  if (!onlineAvailable || !spClient) return joinLocalGame();
+  if (!onlineAvailable || !spClient) return toast('Online play is unavailable. Use Retry connection or choose Play vs bots.', 5000);
+  if (ROOM && !await leaveRoom()) return;
   try {
     const seats = [publicPlayer(ME), null, null, null];
     const { data, error } = await spClient.from('rooms').insert({
@@ -328,12 +357,12 @@ async function createRoom() {
     }).select().single();
     if (error) throw error;
     ROOM = data; ME_SEAT = 0; IS_SPECTATOR = false; usingLocalMode = false;
-    localStorage.setItem('bt_room_resume', JSON.stringify({ roomId: data.id }));
+    storage.setItem('bt_room_resume', JSON.stringify({ roomId: data.id }));
     enterWaitingRoom(data.id);
   } catch (err) {
     console.error(err);
-    toast('Could not create an online table. Starting a local game.');
-    joinLocalGame();
+    toast(connectionError(err), 6000);
+    renderLocalLobby(connectionError(err));
   }
 }
 
@@ -348,42 +377,40 @@ function joinByCode() {
 }
 
 async function joinRoom(id) {
-  if (!onlineAvailable || !spClient) return joinLocalGame();
+  if (!onlineAvailable || !spClient) return toast('Online play is unavailable');
   try {
-    const { data: room, error } = await spClient.from('rooms').select('*').eq('id', id).single();
-    if (error || !room) throw error || new Error('not found');
-    const seats = room.seats || [null, null, null, null];
-    let mySeat = seats.findIndex((s) => s && s.uid === ME.uid);
-    let spectator = false;
-    let updated = room;
-
-    if (mySeat === -1) {
-      const empty = seats.findIndex((s) => !s);
-      if (empty === -1 || room.playing) {
-        spectator = true;
-        const spectators = [...(room.spectators || []).filter((p) => p.uid !== ME.uid), publicPlayer(ME)];
-        await spClient.from('rooms').update({ spectators }).eq('id', id);
-        updated = { ...room, spectators };
-      } else {
-        seats[empty] = publicPlayer(ME);
-        await spClient.from('rooms').update({ seats }).eq('id', id);
-        updated = { ...room, seats };
-        mySeat = empty;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: room, error } = await spClient.from('rooms').select('*').eq('id', id).single();
+      if (error || !room) throw error || new Error('Room not found');
+      const seats = [...room.seats];
+      let mySeat = seats.findIndex((s) => s?.uid === ME.uid);
+      let updated = room;
+      if (mySeat < 0) {
+        const empty = seats.findIndex((s) => !s);
+        let patch;
+        if (empty < 0 || room.playing) {
+          patch = { spectators: [...(room.spectators || []).filter((p) => p.uid !== ME.uid), publicPlayer(ME)] };
+        } else { seats[empty] = publicPlayer(ME); patch = { seats }; }
+        const result = await spClient.from('rooms').update(patch).eq('id', id).eq('updated_at', room.updated_at).select().maybeSingle();
+        if (result.error) throw result.error;
+        if (!result.data) continue; // Another friend claimed a seat; read and retry.
+        updated = result.data;
       }
+      ROOM = updated; ME_SEAT = updated.seats.findIndex((s) => s?.uid === ME.uid);
+      IS_SPECTATOR = ME_SEAT < 0; usingLocalMode = false;
+      storage.setItem('bt_room_resume', JSON.stringify({ roomId: id }));
+      scoreModalKey = ''; lastRenderedPlayId = null;
+      if (ROOM.playing && ROOM.state) enterGame(id); else enterWaitingRoom(id);
+      return;
     }
-    ROOM = updated; ME_SEAT = mySeat; IS_SPECTATOR = spectator; usingLocalMode = false;
-    localStorage.setItem('bt_room_resume', JSON.stringify({ roomId: id }));
-    if (ROOM.playing && ROOM.state) enterGame(id);
-    else enterWaitingRoom(id);
-  } catch (err) {
-    console.error(err);
-    toast('Could not join that room');
-  }
+    toast('The table changed while joining. Please try again.');
+  } catch (err) { toast(connectionError(err), 6000); }
 }
 
 function joinLocalGame() {
   if (!ME.name) return showScreen('screen-profile');
   closeRealtime();
+  scoreModalKey = ''; lastRenderedPlayId = null; SELECTED.clear();
   usingLocalMode = true; IS_SPECTATOR = false; ME_SEAT = 0;
   ROOM = {
     id: 'local', code: 'LOCAL', host_uid: ME.uid,
@@ -416,13 +443,12 @@ function isAuthority() {
   return !!firstHuman && firstHuman.uid === ME.uid;
 }
 
-function copyRoomCode() {
+async function copyRoomCode() {
   const code = ROOM?.code;
-  if (!code || code === 'LOCAL') return;
-  navigator.clipboard?.writeText(code).then(() => {
-    $('copy-hint').textContent = 'Copied!';
-    setTimeout(() => { $('copy-hint').textContent = 'Tap the code to copy'; }, 1500);
-  }).catch(() => toast(`Room code: ${code}`));
+  if (!code || code === 'LOCAL') return toast('This is a local bot table. Create an online table to invite friends.');
+  const link = new URL(location.href); link.searchParams.set('room', code);
+  try { await navigator.clipboard.writeText(link.href); $('copy-hint').textContent = 'Invite link copied!'; }
+  catch { toast('Room code: ' + code, 8000); }
 }
 
 // --------------------------- Waiting room ---------------------------
@@ -456,9 +482,9 @@ function renderWaitingRoom() {
   const filled = seats.filter(Boolean).length;
   $('btn-start').style.display = isHost ? 'block' : 'none';
   $('btn-add-bot-waiting').style.display = isHost && filled < 4 ? 'block' : 'none';
-  $('btn-start').disabled = !isHost || filled < 2;
+  $('btn-start').disabled = !isHost;
   $('waiting-hint').textContent = isHost
-    ? (filled < 2 ? 'Need at least 2 players — add bots to fill the table.' : 'Ready when you are.')
+    ? (filled < 4 ? 'Invite friends before starting. Empty seats will be filled with bots.' : 'All four seats are ready.')
     : 'Waiting for the host to start.';
 }
 
@@ -471,51 +497,107 @@ async function startGameAsHost() {
     seats[empty] = botPlayer(BOT_NAMES[empty] || 'Bot');
   }
   const state = E.dealNewRound(seats, ROOM.scores || [0, 0, 0, 0], ROOM.deal || 1, null);
-  await updateRoom({ seats, playing: true, state });
-  ROOM = { ...ROOM, seats, playing: true, state };
-  enterGame(ROOM.id);
+  if (await updateRoom({ seats, playing: true, state })) enterGame(ROOM.id);
 }
 
 // --------------------------- Realtime sync ---------------------------
+function acceptRoom(room) {
+  if (!ROOM || room.id !== ROOM.id) return;
+  if (ROOM.updated_at && room.updated_at < ROOM.updated_at) return;
+  ROOM = room; GAME_STATE = room.state;
+  ME_SEAT = room.seats.findIndex((s) => s?.uid === ME.uid);
+  IS_SPECTATOR = ME_SEAT < 0;
+  roomChange?.();
+}
+
 function subscribeToRoom(id, onChange) {
   if (!onlineAvailable || !spClient || usingLocalMode) return;
-  closeRealtime();
-  realtimeChannel = spClient.channel(`room-${id}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${id}` }, (payload) => {
-      if (payload.eventType === 'DELETE') { toast('Table closed'); leaveRoom(false); return; }
-      ROOM = payload.new;
-      GAME_STATE = ROOM?.state || null;
-      const idx = (ROOM?.seats || []).findIndex((s) => s && s.uid === ME.uid);
-      if (idx !== -1) { ME_SEAT = idx; IS_SPECTATOR = false; }
-      onChange?.();
-    })
-    .subscribe();
+  // Keep the same channel when moving from waiting room to game.
+  if (realtimeChannel && ROOM?.id === id) { roomChange = onChange; return; }
+  closeRealtime(); roomChange = onChange;
+  const generation = syncGeneration;
+  const channel = spClient.channel('room-' + id, { config: { presence: { key: ME.uid } } });
+  realtimeChannel = channel;
+  channel.on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: 'id=eq.' + id }, (payload) => {
+    if (generation !== syncGeneration) return;
+    if (payload.eventType === 'DELETE') { toast('Table closed'); leaveRoom(true, false); return; }
+    acceptRoom(payload.new);
+  }).on('presence', { event: 'sync' }, () => { presenceReady = true; })
+    .on('broadcast', { event: 'table-event' }, ({ payload }) => {
+      if (!GAME_STATE || !ROOM.seats.some((p) => p?.uid === payload.uid)) return;
+      GAME_STATE.events = [...(GAME_STATE.events || []).slice(-20), payload]; renderEvents();
+    }).subscribe(async (status) => {
+      if (generation !== syncGeneration) return;
+      if (status === 'SUBSCRIBED') await channel.track({ uid: ME.uid });
+      else { presenceReady = false; disconnectedSince.clear(); }
+    });
+  let fetching = false;
+  async function refresh() {
+    if (generation !== syncGeneration || fetching) return;
+    fetching = true;
+    try {
+      const { data, error } = await spClient.from('rooms').select('*').eq('id', id).maybeSingle();
+      if (generation !== syncGeneration) return;
+      if (error) throw error;
+      connectionReady = true;
+      if (!data) { toast('Table closed'); await leaveRoom(true, false); return; }
+      if (data.updated_at !== ROOM?.updated_at) acceptRoom(data);
+      await recoverDisconnectedPlayers(channel);
+    } catch { connectionReady = false; presenceReady = false; disconnectedSince.clear(); toast('Connection lost. Retrying…', 2000); }
+    finally { fetching = false; }
+  }
+  roomPoll = setInterval(refresh, 2500); refresh();
+}
+
+async function recoverDisconnectedPlayers(channel) {
+  if (!presenceReady || !ROOM || mutationBusy) return;
+  const present = new Set(Object.keys(channel.presenceState()));
+  if (!present.has(ME.uid)) return;
+  const humans = ROOM.seats.filter((p) => p && !p.isBot && present.has(p.uid));
+  if (humans[0]?.uid !== ME.uid) return;
+  const seats = [...ROOM.seats]; let changed = false;
+  seats.forEach((p, i) => {
+    if (!p || p.isBot) return;
+    if (present.has(p.uid)) { disconnectedSince.delete(p.uid); return; }
+    if (!disconnectedSince.has(p.uid)) disconnectedSince.set(p.uid, Date.now());
+    if (Date.now() - disconnectedSince.get(p.uid) < 30000) return;
+    seats[i] = ROOM.playing ? botPlayer(p.name + ' (bot)') : null;
+    changed = true;
+  });
+  if (!changed) return;
+  const host = seats.find((p) => p && !p.isBot && p.uid === ROOM.host_uid) || seats.find((p) => p && !p.isBot);
+  await updateRoom({ seats, host_uid: host?.uid || null });
 }
 
 function closeRealtime() {
+  syncGeneration++; clearInterval(roomPoll); roomPoll = null;
   if (realtimeChannel && spClient) spClient.removeChannel(realtimeChannel);
-  realtimeChannel = null;
+  realtimeChannel = null; roomChange = null; presenceReady = false; disconnectedSince.clear();
 }
 
-// Central mutation: update local state, persist online (or drive locally).
+// Compare-and-swap avoids overwriting another player's move or seat.
 async function updateRoom(patch) {
-  if (!ROOM) return;
-  ROOM = { ...ROOM, ...patch };
-  if (patch.state) GAME_STATE = patch.state;
+  if (!ROOM || mutationBusy) return false;
   if (usingLocalMode) {
+    ROOM = { ...ROOM, ...patch }; GAME_STATE = ROOM.state;
     if (ROOM.playing) renderGame(); else renderWaitingRoom();
-    scheduleBotIfNeeded();
-    scheduleRoundFinalizeIfNeeded();
-    return;
+    return true;
   }
-  if (!onlineAvailable || !spClient) return;
+  if (!onlineAvailable || !spClient) return false;
+  mutationBusy = true;
+  const before = ROOM;
   try {
-    const { error } = await spClient.from('rooms').update({ ...patch }).eq('id', ROOM.id);
+    const { data, error } = await spClient.from('rooms').update(patch).eq('id', before.id)
+      .eq('updated_at', before.updated_at).select().maybeSingle();
     if (error) throw error;
-  } catch (err) {
-    console.error(err);
-    toast('Sync failed — check your connection');
-  }
+    if (!data) {
+      const fresh = await spClient.from('rooms').select('*').eq('id', before.id).single();
+      if (fresh.data) acceptRoom(fresh.data);
+      toast('The table changed. Please try your move again.'); return false;
+    }
+    acceptRoom(data); return true;
+  } catch (err) { toast(connectionError(err), 5000); return false; }
+  finally { mutationBusy = false; scheduleBotIfNeeded(); scheduleRoundFinalizeIfNeeded(); }
 }
 
 // ------------------------------- Game -------------------------------
@@ -550,6 +632,10 @@ function renderGame() {
   renderActions();
   renderScores();
   renderEvents();
+  if (/^(roundOver|gameOver)$/.test(state.phase)) {
+    const key = ROOM.id + ':' + state.deal + ':' + state.phase + ':' + ROOM.host_uid;
+    if (key !== scoreModalKey) { scoreModalKey = key; showScoreModal(state); }
+  } else if (scoreModalKey) { scoreModalKey = ''; $('modal').classList.remove('show'); }
   scheduleBotIfNeeded();
   scheduleRoundFinalizeIfNeeded();
 }
@@ -652,14 +738,17 @@ function renderHand() {
     const selected = SELECTED.has(card.id);
     return cardHTML(card, `hand-card ${selected ? 'selected' : ''} ${myTurn ? '' : 'disabled'}`, '', card.id);
   }).join('');
-  hand.querySelectorAll('[data-card]').forEach((el) => el.addEventListener('click', () => toggleCard(el.dataset.card)));
+  hand.querySelectorAll('[data-card]').forEach((el) => {
+    el.addEventListener('click', () => toggleCard(el.dataset.card));
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCard(el.dataset.card); document.querySelector('[data-card="' + el.dataset.card + '"]')?.focus(); } });
+  });
 }
 
 function cardHTML(card, cls = '', style = '', id = '') {
   const red = E.isRed(card) ? 'red-suit' : '';
-  const data = id ? `data-card="${safeText(id)}"` : '';
+  const data = id ? `data-card="${safeText(id)}" role="button" tabindex="0" aria-label="${safeText(card.r)} ${E.SUIT_SYMBOL[card.s]}" aria-pressed="${SELECTED.has(id)}"` : '';
   return `<div class="card ${red} ${cls}" ${data} style="${style}">
-    <div class="rank">${safeText(card.r)}</div>
+    <div class="rank">${safeText(card.r)}<span class="corner-suit">${E.SUIT_SYMBOL[card.s]}</span></div>
     <div class="suit">${E.SUIT_SYMBOL[card.s]}</div>
     <div class="tiny">${safeText(card.r)}</div></div>`;
 }
@@ -707,7 +796,7 @@ function renderScores() {
     if (!player) return '';
     const me = i === ME_SEAT ? 'me' : '';
     const leader = (scores[i] || 0) === min ? 'leader' : '';
-    return `<span class="score-chip ${me} ${leader}">${safeText(player.name)} <span class="sc-val">${scores[i] || 0}</span></span>`;
+    return `<span class="score-chip ${me} ${leader}">${safeText(player.name)} <span class="sc-val">${safeText(scores[i] || 0)}</span></span>`;
   }).join('');
 }
 
@@ -749,7 +838,6 @@ async function finalizeRound() {
   if (!GAME_STATE || GAME_STATE.phase !== 'roundOverPending') return;
   const next = E.finalizeRound(GAME_STATE, ROOM.seats || []);
   await updateRoom({ state: next, scores: next.scores });
-  showScoreModal(next);
 }
 
 function showScoreModal(state) {
@@ -762,12 +850,12 @@ function showScoreModal(state) {
     const left = state.hands?.[i]?.length || 0;
     return `<tr class="${cls}">
       <td>${safeImg(player.avatarImg) ? '📷' : safeText(player.avatar || '')} ${safeText(player.name)}${i === state.winner ? ' 👑' : ''}</td>
-      <td>${left}</td><td>+${penalties[i] || 0}</td><td>${scores[i] || 0}</td></tr>`;
+      <td>${left}</td><td>+${safeText(penalties[i] || 0)}</td><td>${safeText(scores[i] || 0)}</td></tr>`;
   }).join('');
 
   $('modal-inner').innerHTML = `<div class="modal-title">${gameOver ? '🏆 GAME OVER' : 'ROUND OVER'}</div>
     <table class="score-table"><tr><th>Player</th><th>Cards</th><th>Penalty</th><th>Total</th></tr>${rows}</table>
-    <div class="penalty-note"><strong>Scoring:</strong> 1–4 cards ×1 · 5–9 ×2 · 10–12 ×3 · 13 = 39. First to ${state.targetScore || E.TARGET_SCORE} loses.</div>
+    <div class="penalty-note"><strong>Scoring:</strong> 1–4 cards ×1 · 5–9 ×2 · 10–12 ×3 · 13 = 39. First to ${safeText(state.targetScore || E.TARGET_SCORE)} loses.</div>
     ${gameOver
       ? `<div class="penalty-note">🥇 Champion: <strong>${safeText(ROOM.seats?.[state.champion]?.name || 'Player')}</strong> (lowest score wins).</div>
          ${isRoomHost() ? '<button class="btn btn-gold" id="modal-new-session">NEW GAME</button>' : ''}`
@@ -803,7 +891,7 @@ async function endGameNow() {
   if (!confirm('End the game now and show final scores?')) return;
   // An abort just freezes the current standings — no round penalties are applied.
   const scores = GAME_STATE.scores || ROOM.scores || [0, 0, 0, 0];
-  const state = structuredClone ? structuredClone(GAME_STATE) : JSON.parse(JSON.stringify(GAME_STATE));
+  const state = typeof structuredClone === 'function' ? structuredClone(GAME_STATE) : JSON.parse(JSON.stringify(GAME_STATE));
   state.phase = 'gameOver';
   state.scores = scores;
   state.penalties = [0, 0, 0, 0];
@@ -811,32 +899,36 @@ async function endGameNow() {
   state.champion = scores.indexOf(Math.min(...(ROOM.seats || []).map((p, i) => (p ? scores[i] : Infinity))));
   state.loser = scores.indexOf(Math.max(...(ROOM.seats || []).map((p, i) => (p ? scores[i] : -Infinity))));
   await updateRoom({ state });
-  showScoreModal(state);
 }
 
-async function leaveRoom(goLobby = true) {
-  clearTimeout(botTimer);
-  clearTimeout(roundTimer);
-  closeRealtime();
-  localStorage.removeItem('bt_room_resume');
-  if (ROOM && !usingLocalMode && onlineAvailable && spClient) {
+async function leaveRoom(goLobby = true, persist = true) {
+  clearTimeout(botTimer); clearTimeout(roundTimer); closeSheets();
+  if (persist && ROOM && !usingLocalMode && spClient) {
     try {
-      const room = ROOM;
-      const seats = [...(room.seats || [])];
-      const idx = seats.findIndex((s) => s && s.uid === ME.uid);
-      if (idx !== -1 && !room.playing) {
-        seats[idx] = null;
-        await spClient.from('rooms').update({ seats }).eq('id', room.id);
-      } else {
-        const spectators = (room.spectators || []).filter((p) => p.uid !== ME.uid);
-        await spClient.from('rooms').update({ spectators }).eq('id', room.id);
+      let left = false;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const result = await spClient.from('rooms').select('*').eq('id', ROOM.id).maybeSingle();
+        if (result.error) throw result.error;
+        if (!result.data) { left = true; break; }
+        const room = result.data, seats = [...room.seats];
+        const idx = seats.findIndex((p) => p?.uid === ME.uid);
+        if (idx >= 0) seats[idx] = room.playing ? botPlayer(ME.name + ' (bot)') : null;
+        const host = seats.find((p) => p && !p.isBot && p.uid === room.host_uid) || seats.find((p) => p && !p.isBot);
+        const patch = { seats, host_uid: host?.uid || null, spectators: room.spectators.filter((p) => p.uid !== ME.uid) };
+        const write = host
+          ? await spClient.from('rooms').update(patch).eq('id', room.id).eq('updated_at', room.updated_at).select().maybeSingle()
+          : await spClient.from('rooms').delete().eq('id', room.id).eq('updated_at', room.updated_at).select().maybeSingle();
+        if (write.error) throw write.error;
+        if (write.data) { left = true; break; }
       }
-    } catch (err) { console.warn(err); }
+      if (!left) { toast('Table is busy. Try Leave again.'); return false; }
+    } catch (err) { toast('Could not leave cleanly. Reconnecting clients will recover the seat.', 4000); }
   }
+  closeRealtime(); storage.removeItem('bt_room_resume');
   ROOM = null; GAME_STATE = null; ME_SEAT = -1; IS_SPECTATOR = false; usingLocalMode = false;
-  SELECTED.clear();
-  $('modal').classList.remove('show');
+  SELECTED.clear(); scoreModalKey = ''; $('modal').classList.remove('show');
   if (goLobby) initLobby();
+  return true;
 }
 
 // ------------------------------- Bots -------------------------------
@@ -849,7 +941,7 @@ function scheduleBotIfNeeded() {
 }
 
 async function botMove(seat) {
-  if (!GAME_STATE || GAME_STATE.phase !== 'playing' || GAME_STATE.current !== seat) return;
+  if (!GAME_STATE || GAME_STATE.phase !== 'playing' || GAME_STATE.current !== seat || !isAuthority()) return;
   const decision = E.botDecide(GAME_STATE, ROOM.seats || [], seat);
   if (decision.pass) {
     const next = E.applyPass(GAME_STATE, ROOM.seats || [], seat);
@@ -866,7 +958,7 @@ function openStickerSheet() { renderStickerSheet(); $('sheet-backdrop').classLis
 function closeSheets() { $('sheet-backdrop').classList.add('hidden'); $('comment-sheet').classList.add('hidden'); $('sticker-sheet').classList.add('hidden'); }
 
 function getQuickComments() {
-  const custom = JSON.parse(localStorage.getItem('bt_custom_comments') || '[]');
+  const custom = readJSON('bt_custom_comments', []);
   return [...QUICK_COMMENTS_DEFAULT, ...custom].slice(0, 32);
 }
 
@@ -884,9 +976,9 @@ function sendCustomComment(save) {
   const text = input.value.trim().slice(0, 32);
   if (!text) return;
   if (save) {
-    const current = JSON.parse(localStorage.getItem('bt_custom_comments') || '[]');
+    const current = readJSON('bt_custom_comments', []);
     if (!current.includes(text)) current.push(text);
-    localStorage.setItem('bt_custom_comments', JSON.stringify(current.slice(-24)));
+    storage.setItem('bt_custom_comments', JSON.stringify(current.slice(-24)));
     renderCommentSheet();
     toast('Comment saved');
   } else {
@@ -909,15 +1001,17 @@ function renderStickerSheet() {
 }
 
 async function sendTableEvent(payload) {
-  if (!ROOM || !GAME_STATE) return;
-  const seat = ME_SEAT >= 0 ? ME_SEAT : 0;
+  if (!ROOM || !GAME_STATE || IS_SPECTATOR || ME_SEAT < 0) return;
+  const seat = ME_SEAT;
   const event = {
     id: 'E' + Date.now() + Math.random().toString(36).slice(2, 6),
     at: Date.now(), seat, player: ROOM.seats?.[seat]?.name || ME.name, ...payload,
   };
-  const state = structuredClone ? structuredClone(GAME_STATE) : JSON.parse(JSON.stringify(GAME_STATE));
+  const state = typeof structuredClone === 'function' ? structuredClone(GAME_STATE) : JSON.parse(JSON.stringify(GAME_STATE));
   state.events = [...(state.events || []).filter((e) => Date.now() - e.at < 12000), event].slice(-30);
-  await updateRoom({ state });
+  GAME_STATE.events = state.events;
+  renderEvents();
+  if (!usingLocalMode && realtimeChannel) await realtimeChannel.send({ type: 'broadcast', event: 'table-event', payload: { ...event, uid: ME.uid } });
 }
 
 function renderEvents() {
@@ -959,15 +1053,10 @@ function showRulesModal() {
       <li><strong>Beating a play:</strong> match the number of cards and play something stronger, or pass.</li>
       <li><strong>Control:</strong> if everyone passes, the last player to play leads any combo they like.</li>
       <li><strong>First move:</strong> the holder of 3♦ opens the very first deal.</li>
+      <li><strong>House rules:</strong> 2 cannot be used in a straight; the previous winner opens later deals. Flushes compare all ranks from highest to lowest, then suit. A bomb still needs five cards in play.</li>
       <li><strong>Losing:</strong> when someone reaches ${E.TARGET_SCORE} points the game ends — lowest total wins.</li>
     </ul>
     <button class="btn btn-gold" id="modal-close">Got it</button>`;
   $('modal').classList.add('show');
   $('modal-close').addEventListener('click', () => $('modal').classList.remove('show'));
 }
-
-// Re-open the score modal if a remote client advanced the round while we were idle.
-setInterval(() => {
-  if (!GAME_STATE || !ROOM || $('modal').classList.contains('show')) return;
-  if (GAME_STATE.phase === 'roundOver' || GAME_STATE.phase === 'gameOver') showScoreModal(GAME_STATE);
-}, 900);

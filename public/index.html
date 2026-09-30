@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#04150f" />
   <meta name="description" content="Big Two — play the classic card game online with friends or against bots." />
   <title>Big Two — Online</title>
@@ -32,7 +32,7 @@
       <input type="text" id="inp-name" placeholder="Your name" maxlength="16" autocomplete="off" />
 
       <label class="field-label" for="inp-avatar">Avatar emoji</label>
-      <input type="text" id="inp-avatar" placeholder="🃏" maxlength="2" autocomplete="off" />
+      <input type="text" id="inp-avatar" placeholder="🃏" maxlength="16" autocomplete="off" />
 
       <div class="profile-buttons">
         <button class="chip-btn" id="btn-pick-photo" type="button">📁 Upload photo</button>
@@ -69,6 +69,7 @@
       </div>
 
       <div class="divider">LIVE TABLES</div>
+      <div id="online-error" class="online-error hidden" role="status"><p id="online-error-text"></p><button class="chip-btn" id="btn-retry-online">Retry connection</button></div>
       <div class="room-list" id="room-list"><div class="loading-text">Loading tables…</div></div>
 
       <div class="two-col-actions">
@@ -135,7 +136,7 @@
     </main>
 
     <footer class="bottom-panel" id="human-area">
-      <div class="score-strip" id="score-strip"></div>
+      <button class="score-strip" id="score-strip" title="View round scores" aria-label="View round scores"></button>
       <div class="hand-scroll" id="hand-scroll"><div class="hand" id="hand"></div></div>
       <div class="hint-text" id="hint-text">Your cards run from 3 (low) up to 2 (high).</div>
       <div class="action-row">
@@ -171,7 +172,8 @@
   <div class="toast" id="toast"></div>
   <div class="modal" id="modal"><div class="modal-panel" id="modal-inner"></div></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="vendor/supabase.js"></script>
+  <script src="config.js"></script>
   <script src="engine.js"></script>
   <script src="app.js"></script>
 </body>

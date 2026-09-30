@@ -83,6 +83,8 @@
    */
   function analyzeCombo(cards) {
     if (!cards || !cards.length) return null;
+    if (!Array.isArray(cards) || cards.some((c) => !c || !RANKS.includes(c.r) || !SUITS.includes(c.s) || c.id !== c.r + c.s)) return null;
+    if (new Set(cards.map((c) => c.id)).size !== cards.length) return null;
     const sorted = sortCards([...cards]);
     const n = sorted.length;
 
@@ -111,7 +113,11 @@
     if (straight && flush) return { type: 'straightFlush', size: 5, rank: straightHighRank(ranks), power: 800 + straightHigh(ranks, sorted) };
     if (counts[0] === 4) return { type: 'fourKind', size: 5, rank: groups[0].rv, power: 700 + groups[0].rv * 4 + highSuitOfRank(sorted, groups[0].r) };
     if (counts[0] === 3 && counts[1] === 2) return { type: 'fullHouse', size: 5, rank: groups[0].rv, power: 600 + groups[0].rv * 4 + highSuitOfRank(sorted, groups[0].r) };
-    if (flush) return { type: 'flush', size: 5, rank: Math.max(...ranks), power: 500 + Math.max(...sorted.map(cardValue)) };
+    // Lexicographic ranks, then suit, confined to the flush category's range.
+    if (flush) {
+      const key = [...ranks].reverse().reduce((v, rank) => v * 13 + rank, 0) * 4 + SUITS.indexOf(sorted[0].s);
+      return { type: 'flush', size: 5, rank: Math.max(...ranks), power: 500 + key / (13 ** 5 * 4) * 99 };
+    }
     if (straight) return { type: 'straight', size: 5, rank: straightHighRank(ranks), power: 400 + straightHigh(ranks, sorted) };
     return null;
   }
@@ -192,6 +198,8 @@
    * Pure: depends only on the passed state + seat metadata.
    */
   function validatePlay(state, seats, seat, cards) {
+    if (!state || state.phase !== 'playing' || state.current !== seat || !seats[seat]) return { ok: false, reason: 'It is not your turn.', combo: null };
+    if (!Array.isArray(cards) || cards.some((c) => !state.hands[seat].some((held) => held.id === c?.id && held.r === c.r && held.s === c.s))) return { ok: false, reason: 'Choose cards from your hand.', combo: null };
     const combo = analyzeCombo(cards);
     if (!combo) return { ok: false, reason: 'Not a legal combination.', combo: null };
 
@@ -207,7 +215,7 @@
     return { ok: false, reason: 'That hand is not strong enough.', combo };
   }
 
-  const canPass = (state, seat) => !!state.lastPlay && state.lastPlay.seat !== seat;
+  const canPass = (state, seat) => state?.phase === 'playing' && state.current === seat && !!state.lastPlay && state.lastPlay.seat !== seat;
 
   // -------------------------- State transitions --------------------------
   function clone(state) {
@@ -215,6 +223,8 @@
   }
 
   function applyPlay(state, seats, seat, cards, opts = {}) {
+    const verdict = validatePlay(state, seats, seat, cards);
+    if (!verdict.ok) throw new Error(verdict.reason);
     const now = opts.now ?? Date.now();
     const next = clone(state);
     const ids = new Set(cards.map((c) => c.id));
@@ -237,6 +247,7 @@
   }
 
   function applyPass(state, seats, seat) {
+    if (!canPass(state, seat)) throw new Error('You cannot pass right now.');
     const next = clone(state);
     next.passes[seat] = true;
     const lastSeat = next.lastPlay?.seat;
@@ -264,6 +275,7 @@
   }
 
   function finalizeRound(state, seats) {
+    if (state.phase !== 'roundOverPending' || !Number.isInteger(state.winner) || state.hands[state.winner].length !== 0) return clone(state);
     const next = clone(state);
     const winner = next.winner;
     const penalties = [0, 0, 0, 0];
